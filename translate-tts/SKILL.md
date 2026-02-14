@@ -34,6 +34,18 @@ Examples:
 
 - `英文, 日文, 韩文`
 
+Also supported: per-line language and sentence pairs (auto-detected when each line contains `语言:句子`).
+
+Example:
+
+```
+英文：人生总是有喜有悲
+日语：有欢笑也有泪水
+西班牙语：风雨过后才能看到彩虹
+```
+
+When using this format, `--langs` is optional and will be ignored if provided.
+
 `single_tts.py` and `translate_tts.py` both support:
 
 - 中文、英文/英语、法语、德语、俄语、意大利语、西班牙语、葡萄牙语、日语/日文、韩语/韩文
@@ -58,18 +70,45 @@ Files per task:
 
 ### macOS / Linux / WSL
 
+From the workspace root:
+
 ```bash
+bash translate-tts/scripts/run_translate_tts.sh --text "你好世界" --langs "英文,日文,韩文"
+```
+
+Or from the skill folder:
+
+```bash
+cd translate-tts
 bash scripts/run_translate_tts.sh --text "你好世界" --langs "英文,日文,韩文"
 ```
 
 ### Windows PowerShell
 
+From the workspace root:
+
 ```powershell
+./translate-tts/scripts/run_translate_tts.ps1 --text "你好世界" --langs "英文,日文,韩文"
+```
+
+Or from the skill folder:
+
+```powershell
+cd translate-tts
 ./scripts/run_translate_tts.ps1 --text "你好世界" --langs "英文,日文,韩文"
 ```
 
 ### Windows CMD
 
+From the workspace root:
+
 ```bat
+translate-tts\scripts\run_translate_tts.bat --text "你好世界" --langs "英文,日文,韩文"
+```
+
+Or from the skill folder:
+
+```bat
+cd translate-tts
 scripts\run_translate_tts.bat --text "你好世界" --langs "英文,日文,韩文"
 ```

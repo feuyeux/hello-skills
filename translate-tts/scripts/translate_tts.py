@@ -1,12 +1,14 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-from translate_only import normalize_target_language, parse_langs, translate_batch
+from translate_only import normalize_target_language, parse_langs, translate_batch, translate_one
 
 
 DEFAULT_MODEL_CANDIDATES = [
@@ -192,21 +194,12 @@ def build_timestamp() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
 
 
-def unique_path(base_dir: str, lang: str, timestamp: str) -> str:
+def build_audio_path(base_dir: str, lang: str, sequence: int) -> str:
     safe_lang = "".join(ch for ch in lang if ch.isalnum() or ch in ("-", "_"))
     if not safe_lang:
         safe_lang = "lang"
-    filename = f"{safe_lang}_{timestamp}.wav"
-    path = os.path.join(base_dir, filename)
-    if not os.path.exists(path):
-        return path
-    index = 1
-    while True:
-        filename = f"{safe_lang}_{timestamp}_{index}.wav"
-        path = os.path.join(base_dir, filename)
-        if not os.path.exists(path):
-            return path
-        index += 1
+    filename = f"{sequence:02d}_{safe_lang}.wav"
+    return os.path.join(base_dir, filename)
 
 
 def save_translations_text(output_dir: str, target_langs: List[str], translations: List[Optional[str]]) -> str:
@@ -223,6 +216,63 @@ def save_translations_text(output_dir: str, target_langs: List[str], translation
 
 def default_output_root() -> str:
     return os.path.join(os.path.expanduser("~"), "Downloads", "translate_tts")
+
+
+def parse_language_sentence_pairs(text: str) -> Optional[List[Tuple[str, str]]]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    pairs: List[Tuple[str, str]] = []
+    for line in lines:
+        match = re.match(r"^([^:：]+)\s*[:：]\s*(.+)$", line)
+        if not match:
+            return None
+        lang = match.group(1).strip()
+        sentence = match.group(2).strip()
+        if not lang or not sentence:
+            return None
+        pairs.append((lang, sentence))
+
+    return pairs if pairs else None
+
+
+def translate_pairs(
+    *,
+    texts: List[str],
+    target_langs: List[str],
+    ollama_url: str,
+    ollama_model: str,
+    timeout: int,
+    max_workers: int,
+) -> Tuple[List[Optional[str]], List[Dict[str, str]]]:
+    translations: List[Optional[str]] = [None] * len(texts)
+    errors: List[Dict[str, str]] = []
+
+    worker_count = min(max(max_workers, 1), len(texts))
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {}
+        for index, (text, lang) in enumerate(zip(texts, target_langs)):
+            futures[
+                executor.submit(
+                    translate_one,
+                    text,
+                    lang,
+                    ollama_url,
+                    ollama_model,
+                    timeout,
+                )
+            ] = (index, lang)
+
+        for future in as_completed(futures):
+            index, lang = futures[future]
+            translation, err = future.result()
+            if err:
+                errors.append({"lang": lang, "stage": "translate", "message": err})
+            else:
+                translations[index] = translation
+
+    return translations, errors
 
 
 def resolve_model_path(cli_model_path: Optional[str]) -> Optional[str]:
@@ -246,7 +296,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="先翻译中文，再生成多语种语音（支持自然语言语言名）。")
     parser.add_argument("--text", help="Chinese input text (or use --text-file)")
     parser.add_argument("--text-file", help="Read text from a file (UTF-8 encoded)")
-    parser.add_argument("--langs", required=True, help="目标语言，逗号分隔或 JSON 数组（例如：英文,日文,韩文）")
+    parser.add_argument("--langs", help="目标语言，逗号分隔或 JSON 数组（例如：英文,日文,韩文）")
     parser.add_argument("--ollama-url", default="http://localhost:11434")
     parser.add_argument("--ollama-model", default="translategemma")
     parser.add_argument("--ollama-timeout", type=int, default=60)
@@ -304,7 +354,23 @@ def main() -> int:
         print(json.dumps(output, ensure_ascii=False))
         return 1
 
-    raw_target_langs = parse_langs(args.langs)
+    language_sentence_pairs = parse_language_sentence_pairs(input_text)
+    if language_sentence_pairs:
+        raw_target_langs = [lang for lang, _ in language_sentence_pairs]
+        sentences = [sentence for _, sentence in language_sentence_pairs]
+    else:
+        if not args.langs:
+            errors.append({"lang": "", "stage": "input", "message": "--langs is required when not using language:sentence lines"})
+            output = {
+                "translations": [],
+                "audio_paths": [],
+                "errors": errors,
+            }
+            print(json.dumps(output, ensure_ascii=False))
+            return 1
+        raw_target_langs = parse_langs(args.langs)
+        sentences = [input_text] * len(raw_target_langs)
+
     try:
         target_langs = [normalize_target_language(lang) for lang in raw_target_langs]
     except ValueError as exc:
@@ -316,6 +382,7 @@ def main() -> int:
         }
         print(json.dumps(output, ensure_ascii=False))
         return 1
+
     target_lang_labels = [
         to_friendly_label(raw_lang, normalized_lang)
         for raw_lang, normalized_lang in zip(raw_target_langs, target_langs)
@@ -333,14 +400,24 @@ def main() -> int:
         print(json.dumps(output, ensure_ascii=False))
         return 1
 
-    translations, translation_errors = translate_batch(
-        text=input_text,
-        target_langs=target_langs,
-        ollama_url=args.ollama_url,
-        ollama_model=args.ollama_model,
-        timeout=args.ollama_timeout,
-        max_workers=args.max_workers,
-    )
+    if language_sentence_pairs:
+        translations, translation_errors = translate_pairs(
+            texts=sentences,
+            target_langs=target_langs,
+            ollama_url=args.ollama_url,
+            ollama_model=args.ollama_model,
+            timeout=args.ollama_timeout,
+            max_workers=args.max_workers,
+        )
+    else:
+        translations, translation_errors = translate_batch(
+            text=input_text,
+            target_langs=target_langs,
+            ollama_url=args.ollama_url,
+            ollama_model=args.ollama_model,
+            timeout=args.ollama_timeout,
+            max_workers=args.max_workers,
+        )
     errors.extend(translation_errors)
     translations_text_path = ""
     try:
@@ -383,9 +460,10 @@ def main() -> int:
                     }
                 )
         else:
-            timestamp = build_timestamp()
+            sequence = 1
             for index, lang_label, normalized_lang, translated_text in tts_supported_items:
-                path = unique_path(task_output_dir, lang_label, timestamp)
+                path = build_audio_path(task_output_dir, lang_label, sequence)
+                sequence += 1
                 ok, err = run_single_tts(
                     script_path=script_path,
                     sentence=translated_text,
