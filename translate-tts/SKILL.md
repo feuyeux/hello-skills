@@ -1,53 +1,75 @@
 ---
 name: translate-tts
-description: Translate Chinese text to multiple languages and generate speech audio using Qwen3-TTS. Use when user wants to translate Chinese text to other languages and convert to speech.
+description: Use when users want Chinese text translated and converted to speech (translate-then-TTS), including multilingual dubbing, pronunciation clips, or “翻译后朗读”. Trigger implicitly even when users do not explicitly mention this skill.
 ---
 
-# Translate TTS
+# Translate TTS Skill
 
-## Quick Start (PowerShell on Windows — recommended)
+## Trigger Rules
 
-For reliable Unicode handling, write the Chinese text to a temp file first, then pass `--text-file`:
+Trigger this skill when the request implies:
 
-```powershell
-$textFile = [System.IO.Path]::GetTempFileName()
-[System.IO.File]::WriteAllText($textFile, "你好世界", [System.Text.Encoding]::UTF8)
-conda run -n qwen3-tts --no-capture-output python "D:\zoo\skills\translate-tts\scripts\translate_then_tts.py" --text-file $textFile --langs "en,ja,ko"
-Remove-Item $textFile -ErrorAction SilentlyContinue
-```
+- 中文内容翻译成一种或多种语言
+- 翻译结果生成音频（TTS）
+- 多语种配音 / 朗读 / 发音文件
 
-Or use the wrapper script:
+Do not require explicit `$translate-tts`.
 
-```powershell
-D:\zoo\skills\translate-tts\scripts\run.ps1 --text-file $textFile --langs "en,ja,ko"
-```
+## Standard Script Names
 
-If the text is pure ASCII / short, `--text` also works:
+- `scripts/translate_tts.py`: 主流程（翻译 + TTS）
+- `scripts/translate_only.py`: 仅翻译
+- `scripts/single_tts.py`: 单句 TTS
+- `scripts/run_single_tts.sh`: 单句 TTS（Bash 启动器）
+- `scripts/run_translate_tts.sh`: Bash 启动器
+- `scripts/run_translate_tts.ps1`: PowerShell 启动器
+- `scripts/run_translate_tts.bat`: Windows CMD 启动器
+- `scripts/install_translate_tts.py`: 全局安装到 Codex/Claude
 
-```powershell
-conda run -n qwen3-tts --no-capture-output python "D:\zoo\skills\translate-tts\scripts\translate_then_tts.py" --text "你好" --langs "en,ja"
-```
+## Language Input Style
 
-## Important Notes
+Prefer natural language names instead of short codes.
 
-- **Always** use `conda run -n qwen3-tts --no-capture-output` (the `--no-capture-output` flag is required to avoid encoding corruption on Windows).
-- **Prefer `--text-file`** over `--text` for any Chinese input to avoid PowerShell / CMD encoding issues.
-- On Windows the script auto-writes result JSON to `D:\talking\result.json` — read that file for structured output.
+Examples:
 
-## Other Platforms
+- `英文, 日文, 韩文`
+
+`single_tts.py` and `translate_tts.py` both support:
+
+- 中文、英文/英语、法语、德语、俄语、意大利语、西班牙语、葡萄牙语、日语/日文、韩语/韩文
+
+## Output Convention
+
+Default output root:
+
+- `~/Downloads/translate_tts`
+
+Each task creates a timestamp directory:
+
+- `~/Downloads/translate_tts/<YYYYmmdd_HHMMSS_mmm>/`
+
+Files per task:
+
+- `translations.txt`
+- `result.json`
+- `*.wav`
+
+## Recommended Commands
+
+### macOS / Linux / WSL
 
 ```bash
-# Bash (Unix/Git Bash)
-D:\zoo\skills\translate-tts\scripts\run.sh --text "你好世界" --langs "en,ja,ko"
-
-# Windows CMD (interactive)
-D:\zoo\skills\translate-tts\scripts\run-translate-tts.bat
+bash scripts/run_translate_tts.sh --text "你好世界" --langs "英文,日文,韩文"
 ```
 
-## Supported Languages
+### Windows PowerShell
 
-**Translation**: en, ja, ko, zh, ru, es, fr, de, it, pt, ar, th, vi, hi
+```powershell
+./scripts/run_translate_tts.ps1 --text "你好世界" --langs "英文,日文,韩文"
+```
 
-**TTS (语音合成)**: en, ja, ko, zh, ru, es, fr, de, it, pt
+### Windows CMD
 
-Note: Arabic (ar), Hindi (hi), Thai (th), and Vietnamese (vi) are supported for translation but NOT for TTS due to model limitations.
+```bat
+scripts\run_translate_tts.bat --text "你好世界" --langs "英文,日文,韩文"
+```
