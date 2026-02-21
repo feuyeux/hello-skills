@@ -15,16 +15,17 @@ Trigger this skill when the request implies:
 
 Do not require explicit `$translate-tts`.
 
+## Scope Boundary
+
+`translate-tts` only handles translation + TTS.
+
+- It does not include `.ncm -> .wav` conversion.
+- For `.ncm` conversion, use the independent `ncm-to-wav` skill.
+
 ## Standard Script Names
 
 - `scripts/translate_tts.py`: 主流程（翻译 + TTS）
-- `scripts/translate_only.py`: 仅翻译
-- `scripts/single_tts.py`: 单句 TTS
-- `scripts/run_single_tts.sh`: 单句 TTS（Bash 启动器）
 - `scripts/run_translate_tts.sh`: Bash 启动器
-- `scripts/run_translate_tts.ps1`: PowerShell 启动器
-- `scripts/run_translate_tts.bat`: Windows CMD 启动器
-- `scripts/install_translate_tts.py`: 全局安装到 Codex/Claude
 
 ## Language Input Style
 
@@ -46,7 +47,7 @@ Example:
 
 When using this format, `--langs` is optional and will be ignored if provided.
 
-`single_tts.py` and `translate_tts.py` both support:
+`translate_tts.py` supports:
 
 - 中文、英文/英语、法语、德语、俄语、意大利语、西班牙语、葡萄牙语、日语/日文、韩语/韩文
 
@@ -70,45 +71,35 @@ Files per task:
 
 ### macOS / Linux / WSL
 
-From the workspace root:
+Global skill root:
 
 ```bash
-bash translate-tts/scripts/run_translate_tts.sh --text "你好世界" --langs "英文,日文,韩文"
+SKILL_ROOT="${CODEX_HOME:-$HOME/.codex}/skills/translate-tts"
 ```
 
-Or from the skill folder:
+Run:
 
 ```bash
-cd translate-tts
-bash scripts/run_translate_tts.sh --text "你好世界" --langs "英文,日文,韩文"
+bash "$SKILL_ROOT/scripts/run_translate_tts.sh" --text "你好世界" --langs "英文,日文,韩文"
 ```
 
 ### Windows PowerShell
 
-From the workspace root:
+Global skill root:
 
 ```powershell
-./translate-tts/scripts/run_translate_tts.ps1 --text "你好世界" --langs "英文,日文,韩文"
-```
-
-Or from the skill folder:
-
-```powershell
-cd translate-tts
-./scripts/run_translate_tts.ps1 --text "你好世界" --langs "英文,日文,韩文"
+$CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME ".codex" }
+$SkillRoot = Join-Path $CodexHome "skills/translate-tts"
+conda run -n qwen3-tts --no-capture-output python "$SkillRoot/scripts/translate_tts.py" --text "你好世界" --langs "英文,日文,韩文"
 ```
 
 ### Windows CMD
 
-From the workspace root:
-
 ```bat
-translate-tts\scripts\run_translate_tts.bat --text "你好世界" --langs "英文,日文,韩文"
-```
-
-Or from the skill folder:
-
-```bat
-cd translate-tts
-scripts\run_translate_tts.bat --text "你好世界" --langs "英文,日文,韩文"
+if "%CODEX_HOME%"=="" (
+  set "SKILL_ROOT=%USERPROFILE%\.codex\skills\translate-tts"
+) else (
+  set "SKILL_ROOT=%CODEX_HOME%\skills\translate-tts"
+)
+conda run -n qwen3-tts --no-capture-output python "%SKILL_ROOT%\scripts\translate_tts.py" --text "你好世界" --langs "英文,日文,韩文"
 ```
