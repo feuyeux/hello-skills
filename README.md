@@ -1,4 +1,4 @@
-# hello-skills (translate-tts / ncm-to-wav / toolcheck)
+# hello-skills
 
 本项目是一系列为 AI Agent（如 Gemini CLI、Codex、Claude）设计的“技能（Skills）”集合。每个技能都是独立的，通过脚本和 `SKILL.md` 定义其功能。
 
@@ -23,7 +23,7 @@ config:
   theme: neo
   look: neo
 ---
-flowchart TB
+flowchart LR
     A["translate-tts/scripts/run_translate_tts.sh"] --> B["conda run -n qwen3-tts python translate_tts.py"]
     B --> C{"输入检查"}
     C -- "text 或 text-file" --> D["parse_langs + normalize_target_language"]
