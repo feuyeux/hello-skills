@@ -1,17 +1,20 @@
-# hello-skills（translate-tts / ncm-to-wav）
+# hello-skills (translate-tts / ncm-to-wav / toolcheck)
 
-这里有两个独立 skill：
+本项目是一系列为 AI Agent（如 Gemini CLI、Codex、Claude）设计的“技能（Skills）”集合。每个技能都是独立的，通过脚本和 `SKILL.md` 定义其功能。
 
-- `translate-tts`：中文翻译后生成多语种语音（translate + TTS）。
-- `ncm-to-wav`：网易云 `.ncm` 批量转 `.wav`。
+## 技能列表
 
-两者是并列关系，不存在先后顺序依赖。
+- **`translate-tts`**：中文翻译后生成多语种语音（Translation + TTS）。
+- **`ncm-to-wav`**：网易云 `.ncm` 格式批量转换为 `.wav`。
+- **`toolcheck`**：开发工具链诊断，扫描版本冲突、缺失和更新建议。
 
-## translate-tts
+---
 
-基于 `translate-tts/scripts/` 的真实实现，`translate-tts` 的主流程是：先把中文并发翻译到多个目标语言，再按语言调用 Qwen3-TTS 逐条生成音频。
+## 1. translate-tts
 
-## 原理图（Implementation-Based）
+基于 `translate-tts/scripts/` 实现，主流程：先把中文并发翻译到多个目标语言，再按语言调用 Qwen3-TTS 逐条生成音频。
+
+### 原理图 (Mermaid)
 
 ```mermaid
 ---
@@ -49,39 +52,47 @@ flowchart TB
     style M stroke:#FFE0B2,fill:#FFE0B2
 ```
 
-## 关键实现点
+### 关键点
+- **翻译层**：内置并发翻译（`ThreadPoolExecutor`），调用 Ollama。
+- **TTS 层**：内联执行多语种 TTS，支持 10 种语言（中/英/法/德/俄/意/西/葡/日/韩）。
+- **输出**：默认保存至 `~/Downloads/translate_tts/`。
 
-- 翻译层：`translate_tts.py` 内置并发翻译（`ThreadPoolExecutor`）并调用 Ollama。
-- TTS 层：`translate_tts.py` 内联执行多语种 TTS，单语言失败不阻断其他语言。
-- 语言支持：
-  - 翻译支持更多语言别名（含阿拉伯语、印地语、泰语、越南语等）。
-  - TTS 支持 10 种语言（中文/英文/法语/德语/俄语/意大利语/西班牙语/葡萄牙语/日语/韩语）。
-- 输出目录默认：`~/Downloads/translate_tts/<YYYYmmdd_HHMMSS_mmm>/`
-  - `translations.txt`
-  - `result.json`
-  - `*.wav`
+---
 
-## 相关脚本
+## 2. ncm-to-wav
 
-- `translate-tts/scripts/translate_tts.py`：主流程（翻译 + TTS）
-- `translate-tts/scripts/run_translate_tts.sh`：Bash 启动入口
+用于网易云音乐缓存文件 `.ncm` 的批量解码。
 
-## ncm-to-wav（独立 Skill）
-
-核心脚本：
-
-- `ncm-to-wav/scripts/ncm_to_wav.sh`
-
-快速用法：
-
+### 快速用法
 ```bash
-SKILL_ROOT="${CODEX_HOME:-$HOME/.codex}/skills/ncm-to-wav"
-bash "$SKILL_ROOT/scripts/ncm_to_wav.sh" \
-  -i "$HOME/Music/网易云音乐"
+# 假设技能根目录已确定
+bash ncm-to-wav/scripts/ncm_to_wav.sh -i "~/Music/网易云音乐"
 ```
 
-可选参数：
+### 可选参数
+- `-o, --output`：指定输出目录。
+- `-f, --force`：强制覆盖。
+- `--delete-source`：转换成功后删除原文件。
 
-- `-o, --output`：输出到指定目录（保持原目录结构）。
-- `-f, --force`：覆盖已有 wav。
-- `--delete-source`：转换成功后删除源 ncm。
+---
+
+## 3. toolcheck
+
+开发工具链扫描器，支持扫描 25 种常用开发工具（Python, Node, Go, Rust, Java 等）。
+
+### 快速用法
+```bash
+bash toolcheck/scripts/toolcheck.sh
+```
+
+### 功能
+- 检查本地版本与最新版本的差异。
+- 识别重复安装或过期工具。
+- 生成 Markdown 表格报告。
+
+---
+
+## 项目规范
+- **指令上下文**：项目根目录下的 `GEMINI.md` 提供了 AI Agent 使用此仓库的详细指令。
+- **技能元数据**：每个子目录必须包含 `SKILL.md` 以定义触发规则和范围边界。
+- **环境要求**：Python 技能通常需要特定的 Conda 环境（如 `qwen3-tts`）。
