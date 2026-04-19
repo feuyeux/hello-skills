@@ -103,3 +103,30 @@ if "%CODEX_HOME%"=="" (
 )
 conda run -n qwen3-tts --no-capture-output python "%SKILL_ROOT%\scripts\translate_tts.py" --text "你好世界" --langs "英文,日文,韩文"
 ```
+
+## Windows Troubleshooting
+
+### GBK Encoding Error with `conda run`
+
+If you encounter `UnicodeEncodeError: 'gbk' codec can't encode character` when using `conda run`, use the direct Python path instead:
+
+```bash
+export CONDA_DEFAULT_ENV=qwen3-tts
+export PYTHONIOENCODING=utf-8
+/d/garden/anaconda3/envs/qwen3-tts/python.exe scripts/translate_tts.py --text "你好" --langs "英文,日文"
+```
+
+The script now detects the conda environment from `sys.executable` path, so setting `CONDA_DEFAULT_ENV` is sufficient.
+
+### Ollama Connection Issues
+
+If translations fail with "Connection error" or "HTTP 404":
+
+1. Ensure Ollama is running: `ollama serve`
+2. Verify the translategemma model is loaded: `ollama list | grep translategemma`
+3. If missing, pull it: `ollama pull translategemma`
+
+### Translation Retry Logic
+
+The script now automatically retries failed translations up to 3 times with exponential backoff (1s, 2s, 4s) to handle transient Ollama errors.
+```

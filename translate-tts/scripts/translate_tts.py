@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -194,21 +195,30 @@ def build_prompt(text: str, target_lang: str) -> str:
     )
 
 
-def call_ollama_generate(url: str, model: str, prompt: str, timeout: int) -> str:
+def call_ollama_generate(url: str, model: str, prompt: str, timeout: int, max_retries: int = 3) -> str:
     payload = {"model": model, "prompt": prompt, "stream": False}
     data = json.dumps(payload).encode("utf-8")
-    req = Request(
-        url.rstrip("/") + "/api/generate",
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urlopen(req, timeout=timeout) as resp:
-        body = resp.read().decode("utf-8", errors="replace")
-    obj = json.loads(body)
-    if "response" in obj:
-        return str(obj["response"]).strip()
-    raise ValueError("Ollama response missing 'response' field")
+
+    for attempt in range(max_retries):
+        try:
+            req = Request(
+                url.rstrip("/") + "/api/generate",
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req, timeout=timeout) as resp:
+                body = resp.read().decode("utf-8", errors="replace")
+            obj = json.loads(body)
+            if "response" in obj:
+                return str(obj["response"]).strip()
+            raise ValueError("Ollama response missing 'response' field")
+        except (HTTPError, URLError) as e:
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                time.sleep(wait_time)
+                continue
+            raise
 
 
 def translate_one(
@@ -224,10 +234,16 @@ def translate_one(
         if not translation:
             return None, "empty translation"
         return translation, None
-    except (HTTPError, URLError, json.JSONDecodeError, ValueError) as exc:
-        return None, str(exc)
+    except HTTPError as exc:
+        error_msg = f"HTTP {exc.code}: {exc.reason}. Check if model '{ollama_model}' is loaded in Ollama."
+        return None, error_msg
+    except URLError as exc:
+        error_msg = f"Connection error: {exc.reason}. Is Ollama running at {ollama_url}?"
+        return None, error_msg
+    except (json.JSONDecodeError, ValueError) as exc:
+        return None, f"Response parsing error: {exc}"
     except Exception as exc:  # noqa: BLE001
-        return None, str(exc)
+        return None, f"Unexpected error: {exc}"
 
 
 def translate_batch(
@@ -313,6 +329,7 @@ def require_conda_env(env_name: str = "qwen3-tts") -> None:
     in_conda_env = (
         (conda_env and conda_env.lower() == env_name.lower())
         or (env_name.lower() in sys.prefix.lower())
+        or (env_name.lower() in sys.executable.lower())
         or ("conda" in sys.prefix.lower() and "envs" in sys.prefix.lower())
     )
 
