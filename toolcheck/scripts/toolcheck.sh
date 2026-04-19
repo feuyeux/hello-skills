@@ -37,7 +37,7 @@ extract_semver() {
 
 gh_latest() {
   local repo="$1" raw v
-  raw=$(curl -sfL --max-time 5 "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null) || { echo "N/A"; return; }
+  raw=$(curl -sfL --max-time 3 "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null) || { echo "N/A"; return; }
   v=$(echo "$raw" | python3 -c "import sys,json;d=json.load(sys.stdin);t=d.get('tag_name','');print(t.lstrip('v'))" 2>/dev/null)
   echo "${v:-N/A}"
 }
@@ -45,7 +45,7 @@ gh_latest() {
 # Get latest version from GitHub tags (for repos without formal releases)
 gh_tags_latest() {
   local repo="$1" raw v
-  raw=$(curl -sfL --max-time 5 "https://api.github.com/repos/$repo/tags?per_page=1" 2>/dev/null) || { echo "N/A"; return; }
+  raw=$(curl -sfL --max-time 3 "https://api.github.com/repos/$repo/tags?per_page=1" 2>/dev/null) || { echo "N/A"; return; }
   v=$(echo "$raw" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d[0]['name'].lstrip('v'))" 2>/dev/null)
   echo "${v:-N/A}"
 }
@@ -77,6 +77,118 @@ ROWS_OLD=()
 ROWS_OK=()
 ROWS_MISS=()
 
+LATEST_CACHE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/toolcheck.latest.XXXXXX")
+LATEST_METHODS=()
+LATEST_FILES=()
+LATEST_PIDS=()
+
+cleanup() {
+  [ -n "${LATEST_CACHE_DIR:-}" ] && [ -d "$LATEST_CACHE_DIR" ] && rm -rf "$LATEST_CACHE_DIR"
+}
+
+trap cleanup EXIT
+
+latest_file_for_method() {
+  local method="$1"
+  local i
+  for (( i=0; i<${#LATEST_METHODS[@]}; i++ )); do
+    if [ "${LATEST_METHODS[$i]}" = "$method" ]; then
+      echo "${LATEST_FILES[$i]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+resolve_latest_method() {
+  local latest_method="$1"
+  case "$latest_method" in
+    brew:*)      brew_latest "${latest_method#brew:}" ;;
+    gh:*)        gh_latest "${latest_method#gh:}" ;;
+    gh_tags:*)   gh_tags_latest "${latest_method#gh_tags:}" ;;
+    none|"")     echo "N/A" ;;
+    *)           echo "N/A" ;;
+  esac
+}
+
+register_latest_prefetch() {
+  local method="$1" file=""
+  [ "$method" = "none" ] && return
+
+  file=$(latest_file_for_method "$method" || true)
+  if [ -n "$file" ]; then
+    return
+  fi
+
+  file="${LATEST_CACHE_DIR}/latest_${#LATEST_METHODS[@]}.txt"
+  LATEST_METHODS+=("$method")
+  LATEST_FILES+=("$file")
+
+  (
+    resolve_latest_method "$method" > "$file"
+  ) &
+  LATEST_PIDS+=("$!")
+}
+
+prefetch_latest_versions() {
+  register_latest_prefetch "brew:openjdk"
+  register_latest_prefetch "brew:cmake"
+  register_latest_prefetch "brew:composer"
+  register_latest_prefetch "brew:dotnet"
+  register_latest_prefetch "brew:go"
+  register_latest_prefetch "brew:php"
+  register_latest_prefetch "gh:bazelbuild/bazel"
+  register_latest_prefetch "gh:anthropics/claude-code"
+  register_latest_prefetch "brew:gradle"
+  register_latest_prefetch "gh_tags:NousResearch/hermes-agent"
+  register_latest_prefetch "brew:maven"
+  register_latest_prefetch "brew:node"
+  register_latest_prefetch "gh:opencode-ai/opencode"
+  register_latest_prefetch "gh:astral-sh/uv"
+
+  local pid
+  for pid in "${LATEST_PIDS[@]}"; do
+    wait "$pid" 2>/dev/null || true
+  done
+}
+
+get_latest_version() {
+  local latest_method="$1" file="" latest=""
+  [ "$latest_method" = "none" ] && { echo "N/A"; return; }
+
+  file=$(latest_file_for_method "$latest_method" || true)
+  if [ -n "$file" ] && [ -f "$file" ]; then
+    latest=$(cat "$file" 2>/dev/null)
+    echo "${latest:-N/A}"
+    return
+  fi
+
+  resolve_latest_method "$latest_method"
+}
+
+VERSION_DISPLAY=""
+VERSION_PARSED=""
+VERSION_NOTE=""
+
+collect_version_info() {
+  local cmd_path="$1" ver_cmd="$2" cmd_dir="" raw_ver=""
+
+  cmd_dir=$(cd -- "$(dirname -- "$cmd_path")" && pwd -P 2>/dev/null || dirname -- "$cmd_path")
+  raw_ver=$(PATH="$cmd_dir:$PATH" $TOCMD bash -c "$ver_cmd" 2>&1 || echo "-")
+
+  VERSION_DISPLAY=$(echo "$raw_ver" | head -1 | cut -c1-36)
+  VERSION_PARSED=$(extract_semver "$raw_ver")
+  VERSION_NOTE=""
+
+  if echo "$raw_ver" | grep -qiE 'ERROR|JAVA_HOME|exception'; then
+    VERSION_NOTE=$(echo "$raw_ver" | head -1 | cut -c1-20)
+  fi
+  if [ -z "$VERSION_PARSED" ]; then
+    VERSION_NOTE="${VERSION_NOTE:+$VERSION_NOTE; }版本获取失败"
+    VERSION_DISPLAY="-"
+  fi
+}
+
 # check_tool <name> <cmd> <ver_cmd> <latest_method> <upgrade_cmd>
 check_tool() {
   local name="$1" cmd="$2" ver_cmd="$3" latest_method="$4" upgrade_cmd="$5"
@@ -102,12 +214,7 @@ check_tool() {
 
   # Get latest version
   local latest="N/A"
-  case "$latest_method" in
-    brew:*)      latest=$(brew_latest "${latest_method#brew:}") ;;
-    gh:*)        latest=$(gh_latest "${latest_method#gh:}") ;;
-    gh_tags:*)   latest=$(gh_tags_latest "${latest_method#gh_tags:}") ;;
-    none)        latest="N/A" ;;
-  esac
+  latest=$(get_latest_version "$latest_method")
 
   if [ "$num_paths" -eq 0 ]; then
     ROWS_MISS+=("$name|-|✗ 缺失|-|$latest|安装|$upgrade_cmd|-|未安装")
@@ -115,42 +222,35 @@ check_tool() {
   fi
 
   local primary="${paths[0]}"
-  local raw_ver display_ver parsed_ver
-
-  raw_ver=$($TOCMD bash -c "$ver_cmd" 2>&1 || echo "-")
-  display_ver=$(echo "$raw_ver" | head -1 | cut -c1-36)
-  parsed_ver=$(extract_semver "$raw_ver")
-
-  local note=""
-  # Check for error output
-  if echo "$raw_ver" | grep -qiE 'ERROR|JAVA_HOME|exception'; then
-    note=$(echo "$raw_ver" | head -1 | cut -c1-20)
-  fi
-  if [ -z "$parsed_ver" ]; then
-    note="${note:+$note; }版本获取失败"
-    display_ver="-"
-  fi
+  collect_version_info "$primary" "$ver_cmd"
+  local display_ver="$VERSION_DISPLAY"
+  local parsed_ver="$VERSION_PARSED"
+  local note="$VERSION_NOTE"
 
   if [ "$num_paths" -gt 1 ]; then
     # ── Duplicate: emit one row per path ──
-    local action
-    if [ -n "$parsed_ver" ] && [ "$latest" != "N/A" ] && version_lt "$parsed_ver" "$latest"; then
-      action="升级"
-    else
-      action="保留"
-    fi
-
-    # First row: full info
-    local src0
-    src0=$(classify_source "${paths[0]}")
-    ROWS_DUP+=("$name|$display_ver|⚠ 重复|$(truncate_str "${paths[0]}" 40)|$latest|$action|$upgrade_cmd|$src0|$note")
-
-    # Subsequent rows: continuation with ↳ prefix
     local i
-    for (( i=1; i<num_paths; i++ )); do
-      local src_i
+    for (( i=0; i<num_paths; i++ )); do
+      local row_name src_i action_i version_i parsed_i note_i
+      collect_version_info "${paths[$i]}" "$ver_cmd"
+      version_i="$VERSION_DISPLAY"
+      parsed_i="$VERSION_PARSED"
+      note_i="$VERSION_NOTE"
       src_i=$(classify_source "${paths[$i]}")
-      ROWS_DUP+=("  ↳||⚠ 重复|$(truncate_str "${paths[$i]}" 40)||||$src_i|")
+
+      if [ -n "$parsed_i" ] && [ "$latest" != "N/A" ] && version_lt "$parsed_i" "$latest"; then
+        action_i="升级"
+      else
+        action_i="保留"
+      fi
+
+      if [ "$i" -eq 0 ]; then
+        row_name="$name"
+      else
+        row_name="  ↳"
+      fi
+
+      ROWS_DUP+=("$row_name|$version_i|⚠ 重复|$(truncate_str "${paths[$i]}" 40)|$latest|$action_i|$upgrade_cmd|$src_i|$note_i")
     done
   elif [ -n "$parsed_ver" ] && [ "$latest" != "N/A" ] && version_lt "$parsed_ver" "$latest"; then
     local src0
@@ -165,6 +265,8 @@ check_tool() {
 
 # ── Run checks ────────────────────────────────────────────────────
 echo "正在扫描 25 个开发工具..." >&2
+
+prefetch_latest_versions
 
 check_tool "clang"      "clang"    "clang --version 2>&1 | head -1"                   "none"                      "xcode-select --install"
 check_tool "java"       "java"     "java -version 2>&1 | head -1"                     "brew:openjdk"              "brew upgrade openjdk"
@@ -282,7 +384,7 @@ for cf in "${CONFIG_FILES[@]}"; do
   for pat_entry in "${STALE_PATTERNS[@]}"; do
     IFS='|' read -r label pattern <<< "$pat_entry"
     # Search non-comment lines only
-    matches=$(grep -n "$pattern" "$cf" 2>/dev/null | grep -v '^\s*#' | grep -v '^\s*;')
+    matches=$(grep -n "$pattern" "$cf" 2>/dev/null | grep -Ev '^[0-9]+:[[:space:]]*[#;]')
     if [ -n "$matches" ]; then
       if [ "$file_hits" -eq 0 ]; then
         echo "📄 $cf_short"
