@@ -141,7 +141,7 @@ Get-Command <cmd> -All  # Windows
 
 #### 特殊工具
 - `hermes update`：Windows 上需要 `chcp 65001` + `PYTHONIOENCODING=utf-8` 避免 GBK 编码崩溃（PS1 已内置）
-- `uv self update`：仅限独立安装方式；pip/brew 安装的用对应包管理器，Windows 用 `irm https://astral.sh/uv/install.ps1 | iex`（PS1 已内置）
+- `uv`/`hermes` 等：脚本会**自动检测 pip/conda 安装**，若路径在 anaconda/miniconda/venv/envs 下，升级命令自动替换为 `pip install --upgrade <包名>`（如 `pip install --upgrade uv`、`pip install --upgrade hermes-agent`）
 - `claude update`：自带升级器，直接运行即可
 
 ### 2. 删除老版本残留

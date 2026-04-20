@@ -134,11 +134,38 @@ function Get-ElevationPrefix {
 }
 
 # Resolve the actual upgrade command at runtime, considering:
+# - Whether the tool was installed via pip/conda (use pip install --upgrade)
 # - Whether the tool was installed via winget (use actual package ID)
 # - Whether choco needs elevation (gsudo prefix)
 # - Whether the tool is a manual install (suggest download URL)
+
+# Map tool command names to their pip package names (when different)
+$script:PipPackageMap = @{
+    'uv'      = 'uv'
+    'hermes'  = 'hermes-agent'
+    'codex'   = $null  # npm only, not pip
+}
+
+# Detect if a tool was installed via pip (in conda or venv) based on its path
+function Test-PipInstall([string]$cmdPath, [string]$toolName) {
+    if (-not $cmdPath) { return $null }
+    # Check if path is inside a conda env or Python Scripts dir
+    if ($cmdPath -match '(?i)(anaconda|miniconda|conda|envs|[Pp]ython\d*|venv)[/\\].*[/\\]?Scripts[/\\]') {
+        # Determine pip package name
+        $pipPkg = if ($script:PipPackageMap.ContainsKey($toolName)) { $script:PipPackageMap[$toolName] } else { $toolName }
+        if ($pipPkg) { return $pipPkg }
+    }
+    return $null
+}
+
 function Resolve-UpgradeCmd([string]$toolName, [string]$defaultCmd, [string]$cmdPath) {
     $elev = Get-ElevationPrefix
+
+    # Generic pip/conda detection: if installed via pip, use pip upgrade
+    $pipPkg = Test-PipInstall $cmdPath $toolName
+    if ($pipPkg) {
+        return "pip install --upgrade $pipPkg"
+    }
 
     switch ($toolName) {
         'java' {
@@ -153,7 +180,6 @@ function Resolve-UpgradeCmd([string]$toolName, [string]$defaultCmd, [string]$cmd
             return $defaultCmd
         }
         'composer' {
-            # composer self-update writes to ProgramData → needs elevation
             if ($cmdPath -match 'ProgramData') {
                 if ($elev) { return "${elev}composer self-update" }
                 return "Run as Admin: composer self-update"
@@ -161,18 +187,14 @@ function Resolve-UpgradeCmd([string]$toolName, [string]$defaultCmd, [string]$cmd
             return "composer self-update"
         }
         { $_ -in 'gradle', 'maven' } {
-            # Check if installed via choco or manual (D:\zoo, C:\tools, etc.)
-            $chocoDir = "$env:ChocolateyInstall\lib"
             if ($cmdPath -match 'Chocolatey|chocolatey|choco') {
                 if ($elev) { return "${elev}choco upgrade $toolName -y" }
                 return "Run as Admin: choco upgrade $toolName -y"
             }
-            # Manual install → suggest download
             $urls = @{ 'gradle' = 'https://gradle.org/releases/'; 'maven' = 'https://maven.apache.org/download.cgi' }
             return "Manual: download from $($urls[$toolName])"
         }
         { $_ -in 'php', 'bazel', 'clang', 'gcc' } {
-            # choco-dependent tools: need elevation
             if ($defaultCmd -match '^choco ') {
                 if ($elev) { return "${elev}$defaultCmd" }
                 return "Run as Admin: $defaultCmd"

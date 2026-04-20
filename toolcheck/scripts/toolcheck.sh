@@ -207,6 +207,27 @@ collect_version_info() {
   fi
 }
 
+# Detect pip-installed tools and return appropriate upgrade command
+# Returns pip upgrade command if installed via pip/conda, empty string otherwise
+resolve_pip_upgrade() {
+  local name="$1" cmd_path="$2"
+  [ -z "$cmd_path" ] && return 1
+  # Check if path is inside a conda/venv/python site-packages environment
+  case "$cmd_path" in
+    *anaconda*|*miniconda*|*conda*|*envs*|*venv*|*/site-packages/*)
+      # Map tool name to pip package name
+      local pip_pkg=""
+      case "$name" in
+        uv)      pip_pkg="uv" ;;
+        hermes)  pip_pkg="hermes-agent" ;;
+        *)       pip_pkg="$name" ;;
+      esac
+      [ -n "$pip_pkg" ] && echo "pip install --upgrade $pip_pkg" && return 0
+      ;;
+  esac
+  return 1
+}
+
 # check_tool <name> <cmd> <ver_cmd> <latest_method> <upgrade_cmd>
 check_tool() {
   local name="$1" cmd="$2" ver_cmd="$3" latest_method="$4" upgrade_cmd="$5"
@@ -250,6 +271,9 @@ check_tool() {
   fi
 
   local primary="${paths[0]}"
+  # Override upgrade_cmd if installed via pip/conda
+  local pip_cmd
+  pip_cmd=$(resolve_pip_upgrade "$name" "$primary") && upgrade_cmd="$pip_cmd"
   collect_version_info "$primary" "$ver_cmd"
   local display_ver="$VERSION_DISPLAY"
   local parsed_ver="$VERSION_PARSED"
