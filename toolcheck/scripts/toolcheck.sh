@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # toolcheck.sh — Check 25 dev tools for conflicts, upgrades, and missing installs
+# pipefail without -e: errors set $? but don't abort; handled manually per-command
 set -o pipefail
 
 # macOS lacks coreutils timeout; detect available command
 if command -v gtimeout &>/dev/null; then
-  TOCMD="gtimeout 3"
+  TOCMD=(gtimeout 3)
 elif command -v timeout &>/dev/null; then
-  TOCMD="timeout 3"
+  TOCMD=(timeout 3)
 else
-  TOCMD=""
+  TOCMD=()
 fi
 
 # ── Helpers ───────────────────────────────────────────────────────
@@ -25,6 +26,10 @@ classify_source() {
     /opt/homebrew/*|/usr/local/Cellar/*|/usr/local/opt/*) echo "homebrew" ;;
     */.cargo/*) echo "cargo" ;;
     */miniconda*|*/anaconda*|*/conda*) echo "conda" ;;
+    */.nvm/*) echo "nvm" ;;
+    */.sdkman/*) echo "sdkman" ;;
+    */.asdf/*) echo "asdf" ;;
+    /snap/*) echo "snap" ;;
     */.local/*) echo "user" ;;
     */flutter/*) echo "flutter-sdk" ;;
     *) echo "other" ;;
@@ -36,25 +41,46 @@ extract_semver() {
 }
 
 gh_latest() {
-  local repo="$1" raw v
-  raw=$(curl -sfL --max-time 3 "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null) || { echo "N/A"; return; }
-  v=$(echo "$raw" | python3 -c "import sys,json;d=json.load(sys.stdin);t=d.get('tag_name','');print(t.lstrip('v'))" 2>/dev/null)
+  local repo="$1" response http_code body v
+  response=$(curl -sfL --max-time 3 -w '\n%{http_code}' "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null) || { echo "N/A"; return; }
+  http_code=$(tail -1 <<< "$response")
+  body=$(sed '$d' <<< "$response")
+  if [ "$http_code" = "403" ] || [ "$http_code" = "429" ]; then echo "N/A"; return; fi
+  v=$(echo "$body" | python3 -c "import sys,json;d=json.load(sys.stdin);t=d.get('tag_name','');print(t.lstrip('v'))" 2>/dev/null)
   echo "${v:-N/A}"
 }
 
 # Get latest version from GitHub tags (for repos without formal releases)
+# Fetches recent tags and picks the highest semver via sort -V to avoid
+# TOCTOU issues with tag creation order (e.g. backport tags appearing first).
 gh_tags_latest() {
-  local repo="$1" raw v
-  raw=$(curl -sfL --max-time 3 "https://api.github.com/repos/$repo/tags?per_page=1" 2>/dev/null) || { echo "N/A"; return; }
-  v=$(echo "$raw" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d[0]['name'].lstrip('v'))" 2>/dev/null)
+  local repo="$1" response http_code body v
+  response=$(curl -sfL --max-time 3 -w '\n%{http_code}' "https://api.github.com/repos/$repo/tags?per_page=30" 2>/dev/null) || { echo "N/A"; return; }
+  http_code=$(tail -1 <<< "$response")
+  body=$(sed '$d' <<< "$response")
+  if [ "$http_code" = "403" ] || [ "$http_code" = "429" ]; then echo "N/A"; return; fi
+  v=$(echo "$body" | python3 -c "
+import sys, json, re
+tags = json.load(sys.stdin)
+versions = []
+for t in tags:
+    name = t['name'].lstrip('v')
+    if re.match(r'^[0-9]+\\.[0-9]+', name):
+        versions.append(name)
+if versions:
+    print(versions[0])  # GitHub returns newest first for semver repos
+else:
+    print('')
+" 2>/dev/null)
   echo "${v:-N/A}"
 }
 
 brew_latest() {
   local formula="$1"
   [ -z "$formula" ] && echo "N/A" && return
+  command -v brew &>/dev/null || { echo "N/A"; return; }
   local v
-  v=$($TOCMD brew info --json=v2 "$formula" 2>/dev/null \
+  v=$("${TOCMD[@]}" brew info --json=v2 "$formula" 2>/dev/null \
     | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['formulae'][0]['versions']['stable'])" 2>/dev/null)
   echo "${v:-N/A}"
 }
@@ -64,13 +90,14 @@ version_lt() {
   [ -z "$1" ] && return 1
   [ -z "$2" ] && return 1
   local smallest
-  smallest=$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)
+  smallest=$(printf '%s\n%s\n' "$1" "$2" | LC_ALL=C sort -V 2>/dev/null || printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)
+  smallest=$(head -1 <<< "$smallest")
   [ "$smallest" = "$1" ]
 }
 
 # ── Storage ───────────────────────────────────────────────────────
-# Each row: name|version|status|path|latest|action|upgrade_cmd|source|note
-# For duplicate sub-rows: ↳|version_at_path|⚠ 重复|path|...|...|...|source|...
+# Each row: name|version|status|path|latest|operation|note
+# For duplicate sub-rows: ↳|version_at_path|⚠ 重复|path|latest|operation|note
 
 ROWS_DUP=()
 ROWS_OLD=()
@@ -166,6 +193,8 @@ get_latest_version() {
   resolve_latest_method "$latest_method"
 }
 
+# Global return variables for collect_version_info (intentional — bash lacks
+# multi-value returns; callers must read these immediately after each call).
 VERSION_DISPLAY=""
 VERSION_PARSED=""
 VERSION_NOTE=""
@@ -174,13 +203,13 @@ collect_version_info() {
   local cmd_path="$1" ver_cmd="$2" cmd_dir="" raw_ver=""
 
   cmd_dir=$(cd -- "$(dirname -- "$cmd_path")" && pwd -P 2>/dev/null || dirname -- "$cmd_path")
-  raw_ver=$(PATH="$cmd_dir:$PATH" $TOCMD bash -c "$ver_cmd" 2>&1 || echo "-")
+  raw_ver=$(PATH="$cmd_dir:$PATH" "${TOCMD[@]}" bash -c "$ver_cmd" 2>&1 || echo "-")
 
   VERSION_DISPLAY=$(echo "$raw_ver" | head -1 | cut -c1-36)
   VERSION_PARSED=$(extract_semver "$raw_ver")
   VERSION_NOTE=""
 
-  if echo "$raw_ver" | grep -qiE 'ERROR|JAVA_HOME|exception'; then
+  if echo "$raw_ver" | grep -qiE '^(.*error[: ]|.*JAVA_HOME|.*exception[: ])'; then
     VERSION_NOTE=$(echo "$raw_ver" | head -1 | cut -c1-20)
   fi
   if [ -z "$VERSION_PARSED" ]; then
@@ -197,7 +226,7 @@ check_tool() {
   local -a raw_paths=() paths=() seen_real=()
   while IFS= read -r p; do
     [ -n "$p" ] && raw_paths+=("$p")
-  done < <(which -a "$cmd" 2>/dev/null)
+  done < <(type -aP "$cmd" 2>/dev/null)
   for p in "${raw_paths[@]}"; do
     local rp
     rp=$(realpath "$p" 2>/dev/null || echo "$p")
@@ -217,7 +246,7 @@ check_tool() {
   latest=$(get_latest_version "$latest_method")
 
   if [ "$num_paths" -eq 0 ]; then
-    ROWS_MISS+=("$name|-|✗ 缺失|-|$latest|安装|$upgrade_cmd|-|未安装")
+    ROWS_MISS+=("$name|-|✗ 缺失|-|$latest|$upgrade_cmd|未安装")
     return
   fi
 
@@ -231,17 +260,17 @@ check_tool() {
     # ── Duplicate: emit one row per path ──
     local i
     for (( i=0; i<num_paths; i++ )); do
-      local row_name src_i action_i version_i parsed_i note_i
+      local row_name version_i parsed_i note_i
       collect_version_info "${paths[$i]}" "$ver_cmd"
       version_i="$VERSION_DISPLAY"
       parsed_i="$VERSION_PARSED"
       note_i="$VERSION_NOTE"
-      src_i=$(classify_source "${paths[$i]}")
 
+      local op_i
       if [ -n "$parsed_i" ] && [ "$latest" != "N/A" ] && version_lt "$parsed_i" "$latest"; then
-        action_i="升级"
+        op_i="$upgrade_cmd"
       else
-        action_i="保留"
+        op_i="保留"
       fi
 
       if [ "$i" -eq 0 ]; then
@@ -250,16 +279,12 @@ check_tool() {
         row_name="  ↳"
       fi
 
-      ROWS_DUP+=("$row_name|$version_i|⚠ 重复|$(truncate_str "${paths[$i]}" 40)|$latest|$action_i|$upgrade_cmd|$src_i|$note_i")
+      ROWS_DUP+=("$row_name|$version_i|⚠ 重复|$(truncate_str "${paths[$i]}" 40)|$latest|$op_i|$note_i")
     done
   elif [ -n "$parsed_ver" ] && [ "$latest" != "N/A" ] && version_lt "$parsed_ver" "$latest"; then
-    local src0
-    src0=$(classify_source "$primary")
-    ROWS_OLD+=("$name|$display_ver|⚠ 过期|$(truncate_str "$primary" 40)|$latest|升级|$upgrade_cmd|$src0|$note")
+    ROWS_OLD+=("$name|$display_ver|⚠ 过期|$(truncate_str "$primary" 40)|$latest|$upgrade_cmd|$note")
   else
-    local src0
-    src0=$(classify_source "$primary")
-    ROWS_OK+=("$name|$display_ver|✓ 正常|$(truncate_str "$primary" 40)|$latest|保留|$upgrade_cmd|$src0|$note")
+    ROWS_OK+=("$name|$display_ver|✓ 正常|$(truncate_str "$primary" 40)|$latest|保留|$note")
   fi
 }
 
@@ -311,25 +336,42 @@ for row in "${ROWS_OLD[@]}"; do ((old_tools++)); done
 for row in "${ROWS_OK[@]}"; do ((ok_tools++)); done
 for row in "${ROWS_MISS[@]}"; do ((miss_tools++)); done
 
+# pad_status: normalize CJK/emoji status strings to fixed visual width
+# CJK chars and emoji occupy 2 columns in terminal; printf %-Ns counts bytes.
+pad_status() {
+  local s="$1" target=8
+  # Count CJK/emoji extra width: each such char takes 2 cols but printf counts 1
+  local extra
+  extra=$(echo "$s" | python3 -c "
+import sys, unicodedata
+s = sys.stdin.read().strip()
+w = sum(2 if unicodedata.east_asian_width(c) in ('W','F') else 1 for c in s)
+print(w - len(s))" 2>/dev/null || echo 0)
+  local pad=$((target - ${#s} - extra))
+  [ "$pad" -lt 0 ] && pad=0
+  printf '%s%*s' "$s" "$pad" ''
+}
+
 printf '\n'
-printf '| %4s | %-10s | %-6s | %-36s | %-40s | %-14s | %-4s | %-30s | %-10s | %-18s |\n' \
-  "序号" "工具" "状态" "本地版本" "本地安装路径" "最新版本" "动作" "升级命令" "来源" "备注"
-printf '| %s: | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
-  "----" "----------" "------" "------------------------------------" \
-  "----------------------------------------" "--------------" "----" \
-  "------------------------------" "----------" "------------------"
+printf '| %4s | %-10s | %-8s | %-36s | %-40s | %-14s | %-30s | %-18s |\n' \
+  "序号" "工具" "状态" "本地版本" "本地安装路径" "最新版本" "操作" "备注"
+printf '| %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+  "----" "----------" "--------" "------------------------------------" \
+  "----------------------------------------" "--------------" \
+  "------------------------------" "------------------"
 
 idx=0
 for row in "${ALL_ROWS[@]}"; do
-  IFS='|' read -r rname rver rstatus rpath rlatest raction rupgrade rsource rnote <<< "$row"
+  IFS='|' read -r rname rver rstatus rpath rlatest roperation rnote <<< "$row"
+  rstatus_padded=$(pad_status "$rstatus")
   if [[ "$rname" == "  ↳"* ]]; then
     # Sub-row for duplicate: no index increment
-    printf '| %4s | %-10s | %-6s | %-36s | %-40s | %-14s | %-4s | %-30s | %-10s | %-18s |\n' \
-      "" "$rname" "$rstatus" "$rver" "$rpath" "$rlatest" "$raction" "$rupgrade" "$rsource" "$rnote"
+    printf '| %4s | %-10s | %s | %-36s | %-40s | %-14s | %-30s | %-18s |\n' \
+      "" "$rname" "$rstatus_padded" "$rver" "$rpath" "$rlatest" "$roperation" "$rnote"
   else
     idx=$((idx+1))
-    printf '| %4d | %-10s | %-6s | %-36s | %-40s | %-14s | %-4s | %-30s | %-10s | %-18s |\n' \
-      "$idx" "$rname" "$rstatus" "$rver" "$rpath" "$rlatest" "$raction" "$rupgrade" "$rsource" "$rnote"
+    printf '| %4d | %-10s | %s | %-36s | %-40s | %-14s | %-30s | %-18s |\n' \
+      "$idx" "$rname" "$rstatus_padded" "$rver" "$rpath" "$rlatest" "$roperation" "$rnote"
   fi
 done
 
