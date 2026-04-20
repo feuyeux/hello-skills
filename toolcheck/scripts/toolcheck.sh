@@ -3,6 +3,16 @@
 # pipefail without -e: errors set $? but don't abort; handled manually per-command
 set -o pipefail
 
+# ── Parse flags ───────────────────────────────────────────────────
+# Default: quiet (file-only). Use -v for verbose console output.
+CONSOLE=false
+while getopts "v" opt; do
+  case $opt in
+    v) CONSOLE=true ;;
+    *) ;;
+  esac
+done
+
 # macOS lacks coreutils timeout; detect available command
 if command -v gtimeout &>/dev/null; then
   TOCMD=(gtimeout 3)
@@ -18,22 +28,6 @@ truncate_str() {
   local s="$1" max="${2:-40}"
   if [ ${#s} -le "$max" ]; then echo "$s"
   else echo "...${s: -$((max-3))}"; fi
-}
-
-classify_source() {
-  case "$1" in
-    /usr/bin/*|/usr/sbin/*) echo "system" ;;
-    /opt/homebrew/*|/usr/local/Cellar/*|/usr/local/opt/*) echo "homebrew" ;;
-    */.cargo/*) echo "cargo" ;;
-    */miniconda*|*/anaconda*|*/conda*) echo "conda" ;;
-    */.nvm/*) echo "nvm" ;;
-    */.sdkman/*) echo "sdkman" ;;
-    */.asdf/*) echo "asdf" ;;
-    /snap/*) echo "snap" ;;
-    */.local/*) echo "user" ;;
-    */flutter/*) echo "flutter-sdk" ;;
-    *) echo "other" ;;
-  esac
 }
 
 extract_semver() {
@@ -102,7 +96,11 @@ version_lt() {
 ROWS_DUP=()
 ROWS_OLD=()
 ROWS_OK=()
+ROWS_NA=()
 ROWS_MISS=()
+
+# macOS-only tools — show "— 不适用" on Linux
+MAC_ONLY_TOOLS=(swift)
 
 LATEST_CACHE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/toolcheck.latest.XXXXXX")
 LATEST_METHODS=()
@@ -158,20 +156,11 @@ register_latest_prefetch() {
 }
 
 prefetch_latest_versions() {
-  register_latest_prefetch "brew:openjdk"
-  register_latest_prefetch "brew:cmake"
-  register_latest_prefetch "brew:composer"
-  register_latest_prefetch "brew:dotnet"
-  register_latest_prefetch "brew:go"
-  register_latest_prefetch "brew:php"
-  register_latest_prefetch "gh:bazelbuild/bazel"
-  register_latest_prefetch "gh:anthropics/claude-code"
-  register_latest_prefetch "brew:gradle"
-  register_latest_prefetch "gh_tags:NousResearch/hermes-agent"
-  register_latest_prefetch "brew:maven"
-  register_latest_prefetch "brew:node"
-  register_latest_prefetch "gh:opencode-ai/opencode"
-  register_latest_prefetch "gh:astral-sh/uv"
+  # Accept method strings as arguments (deduplicates internally via register_latest_prefetch)
+  local m
+  for m in "$@"; do
+    register_latest_prefetch "$m"
+  done
 
   local pid
   for pid in "${LATEST_PIDS[@]}"; do
@@ -221,6 +210,16 @@ collect_version_info() {
 # check_tool <name> <cmd> <ver_cmd> <latest_method> <upgrade_cmd>
 check_tool() {
   local name="$1" cmd="$2" ver_cmd="$3" latest_method="$4" upgrade_cmd="$5"
+
+  # Platform check: macOS-only tools on non-macOS → not applicable
+  local is_mac_only=0
+  for mot in "${MAC_ONLY_TOOLS[@]}"; do
+    [ "$mot" = "$name" ] && is_mac_only=1 && break
+  done
+  if [ "$is_mac_only" -eq 1 ] && [ "$(uname -s)" != "Darwin" ]; then
+    ROWS_NA+=("$name|-|— 不适用|-|N/A|跳过|仅 macOS")
+    return
+  fi
 
   # Find all paths, resolve symlinks to deduplicate
   local -a raw_paths=() paths=() seen_real=()
@@ -291,7 +290,14 @@ check_tool() {
 # ── Run checks ────────────────────────────────────────────────────
 echo "正在扫描 25 个开发工具..." >&2
 
-prefetch_latest_versions
+# Prefetch all non-none latest methods (single source of truth from check_tool args below)
+ALL_LATEST_METHODS=(
+  "brew:openjdk" "brew:cmake" "brew:composer" "brew:dotnet" "brew:go" "brew:php"
+  "gh:bazelbuild/bazel" "gh:anthropics/claude-code" "brew:gradle"
+  "gh_tags:NousResearch/hermes-agent" "brew:maven" "brew:node"
+  "gh:opencode-ai/opencode" "gh:astral-sh/uv"
+)
+prefetch_latest_versions "${ALL_LATEST_METHODS[@]}"
 
 check_tool "clang"      "clang"    "clang --version 2>&1 | head -1"                   "none"                      "xcode-select --install"
 check_tool "java"       "java"     "java -version 2>&1 | head -1"                     "brew:openjdk"              "brew upgrade openjdk"
@@ -325,15 +331,17 @@ ALL_ROWS=()
 [ ${#ROWS_DUP[@]} -gt 0 ]  && ALL_ROWS+=("${ROWS_DUP[@]}")
 [ ${#ROWS_OLD[@]} -gt 0 ]  && ALL_ROWS+=("${ROWS_OLD[@]}")
 [ ${#ROWS_OK[@]} -gt 0 ]   && ALL_ROWS+=("${ROWS_OK[@]}")
+[ ${#ROWS_NA[@]} -gt 0 ]   && ALL_ROWS+=("${ROWS_NA[@]}")
 [ ${#ROWS_MISS[@]} -gt 0 ] && ALL_ROWS+=("${ROWS_MISS[@]}")
 
 # Count logical tools (not sub-rows)
-dup_tools=0; old_tools=0; ok_tools=0; miss_tools=0
+dup_tools=0; old_tools=0; ok_tools=0; na_tools=0; miss_tools=0
 for row in "${ROWS_DUP[@]}"; do
   [[ "$row" != "  ↳"* ]] && ((dup_tools++))
 done
 for row in "${ROWS_OLD[@]}"; do ((old_tools++)); done
 for row in "${ROWS_OK[@]}"; do ((ok_tools++)); done
+na_tools=${#ROWS_NA[@]}
 for row in "${ROWS_MISS[@]}"; do ((miss_tools++)); done
 
 # pad_status: normalize CJK/emoji status strings to fixed visual width
@@ -352,6 +360,14 @@ print(w - len(s))" 2>/dev/null || echo 0)
   printf '%s%*s' "$s" "$pad" ''
 }
 
+# Report file: ~/toolcheck/report_mmdd_hhmmss.md
+REPORT_DIR="$HOME/toolcheck"
+mkdir -p "$REPORT_DIR"
+REPORT_FILE="$REPORT_DIR/report_$(date '+%m%d_%H%M%S').md"
+
+{
+
+echo '# Toolcheck Report'
 printf '\n'
 printf '| %4s | %-10s | %-8s | %-36s | %-40s | %-14s | %-30s | %-18s |\n' \
   "序号" "工具" "状态" "本地版本" "本地安装路径" "最新版本" "操作" "备注"
@@ -377,11 +393,21 @@ done
 
 printf '\n'
 echo "---"
-total=$((dup_tools + old_tools + ok_tools + miss_tools))
+total=$((dup_tools + old_tools + ok_tools + na_tools + miss_tools))
 echo "扫描完成: $total 个工具"
-echo "  ⚠ 重复: $dup_tools  |  ⚠ 过期: $old_tools  |  ✓ 正常: $ok_tools  |  ✗ 缺失: $miss_tools"
+echo "  ⚠ 重复: $dup_tools  |  ⚠ 过期: $old_tools  |  ✓ 正常: $ok_tools  |  — 不适用: $na_tools  |  ✗ 缺失: $miss_tools"
 
-# ── Config audit: check shell configs for stale paths ─────────────
+} > "$REPORT_FILE"
+
+if [ "$CONSOLE" = true ]; then
+  cat "$REPORT_FILE"
+fi
+
+echo "" >&2
+echo "报告已保存到: $REPORT_FILE" >&2
+
+# ── Config audit: check shell configs for stale paths ─────────────────
+if [ "$CONSOLE" = true ]; then
 
 CONFIG_FILES=(
   "$HOME/.zshrc"
@@ -412,7 +438,7 @@ STALE_PATTERNS=(
 
 printf '\n'
 echo "=========================================="
-echo "  本地配置审计 (Shell RC / Profile)"
+echo "  本地配置审计 (Shell RC / PATH)"
 echo "=========================================="
 printf '\n'
 
@@ -449,3 +475,4 @@ if [ "$audit_found" -eq 0 ]; then
 fi
 
 printf '\n'
+fi  # end CONSOLE check

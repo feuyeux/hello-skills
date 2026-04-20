@@ -1,4 +1,5 @@
 ﻿#Requires -Version 5.1
+param([switch]$Console)
 # toolcheck.ps1 - Cross-platform dev tool auditor (Windows)
 #
 # Architecture: Registry -> Discovery -> LatestFetch -> Classification -> Report
@@ -571,18 +572,43 @@ function Invoke-ToolScan {
 # Full entry point: scan -> table -> summary -> config audit
 # Returns result objects for further processing
 function Invoke-ToolCheck {
+    param([switch]$Console)
+
     $results = Invoke-ToolScan
-
     $tableLines = Format-ToolTable $results
-    foreach ($line in $tableLines) { Write-Host $line }
 
-    Write-ScanSummary $results
-    Test-ConfigAudit
+    if ($Console) {
+        foreach ($line in $tableLines) { Write-Host $line }
+        Write-ScanSummary $results
+        Test-ConfigAudit
+    }
+
+    # Write report to ~/toolcheck/report_mmdd_hhmmss.md
+    $reportDir = Join-Path $HOME "toolcheck"
+    if (-not (Test-Path $reportDir)) { New-Item -ItemType Directory -Path $reportDir -Force | Out-Null }
+    $ts = Get-Date -Format 'MMdd_HHmmss'
+    $reportFile = Join-Path $reportDir "report_$ts.md"
+    $dup  = ($results | Where-Object Status -eq 'duplicate').Count
+    $old  = ($results | Where-Object Status -eq 'outdated').Count
+    $ok   = ($results | Where-Object Status -eq 'normal').Count
+    $na   = ($results | Where-Object Status -eq 'na').Count
+    $miss = ($results | Where-Object Status -eq 'missing').Count
+    $allLines = @()
+    $allLines += "# Toolcheck Report"
+    $allLines += ""
+    $allLines += $tableLines
+    $allLines += ""
+    $allLines += "---"
+    $allLines += "扫描完成: $($results.Count) 个工具"
+    $allLines += "  ⚠ 重复: $dup  |  ⚠ 过期: $old  |  ✓ 正常: $ok  |  — 不适用: $na  |  ✗ 缺失: $miss"
+    $allLines | Out-File -FilePath $reportFile -Encoding UTF8
+    Write-Host ""
+    Write-Host "报告已保存到: $reportFile" -ForegroundColor Green
 
     return ,$results
 }
 
 # ── Auto-run when executed directly (not dot-sourced) ─────────────
 if ($MyInvocation.InvocationName -ne '.') {
-    $null = Invoke-ToolCheck
+    $null = Invoke-ToolCheck -Console:$Console
 }
