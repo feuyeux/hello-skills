@@ -54,7 +54,7 @@ $script:LatestSourceMap = @{
     'brew:php'      = 'gh:php/php-src'
     'brew:gradle'   = 'gh:gradle/gradle'
     'brew:maven'    = 'gh:apache/maven'
-    'brew:node'     = 'winget:OpenJS.NodeJS'
+    'brew:node'     = 'winget:OpenJS.NodeJS.LTS'
 }
 
 $script:MacOnlyTools = @('swift')
@@ -80,13 +80,107 @@ function Get-ToolRegistry {
         [pscustomobject]@{ Name="gcc";        Cmd="gcc";      VerCmd="gcc --version";      LatestMethod="none";                              UpgradeCmd="choco install mingw"                   }
         [pscustomobject]@{ Name="gemini-cli"; Cmd="gemini";   VerCmd="gemini --version";   LatestMethod="none";                              UpgradeCmd="npm i -g @google/gemini-cli@latest"    }
         [pscustomobject]@{ Name="gradle";     Cmd="gradle";   VerCmd="gradle --version";   LatestMethod="brew:gradle";                       UpgradeCmd="choco upgrade gradle"                  }
-        [pscustomobject]@{ Name="hermes";     Cmd="hermes";   VerCmd="hermes --version";   LatestMethod="gh_tags:NousResearch/hermes-agent"; UpgradeCmd="hermes update"                        }
+        [pscustomobject]@{ Name="hermes";     Cmd="hermes";   VerCmd="hermes --version";   LatestMethod="gh_tags:NousResearch/hermes-agent"; UpgradeCmd="cmd /c `"chcp 65001 >nul & set PYTHONIOENCODING=utf-8 & hermes update`""  }
         [pscustomobject]@{ Name="maven";      Cmd="mvn";      VerCmd="mvn --version";      LatestMethod="brew:maven";                        UpgradeCmd="choco upgrade maven"                   }
-        [pscustomobject]@{ Name="node";       Cmd="node";     VerCmd="node --version";     LatestMethod="brew:node";                         UpgradeCmd="winget upgrade OpenJS.NodeJS"          }
+        [pscustomobject]@{ Name="node";       Cmd="node";     VerCmd="node --version";     LatestMethod="brew:node";                         UpgradeCmd="winget upgrade OpenJS.NodeJS.LTS"      }
         [pscustomobject]@{ Name="npm";        Cmd="npm";      VerCmd="npm --version";      LatestMethod="none";                              UpgradeCmd="npm install -g npm"                   }
         [pscustomobject]@{ Name="opencode";   Cmd="opencode"; VerCmd="opencode --version"; LatestMethod="gh:opencode-ai/opencode";           UpgradeCmd="npm i -g opencode@latest"              }
-        [pscustomobject]@{ Name="uv";         Cmd="uv";       VerCmd="uv --version";       LatestMethod="gh:astral-sh/uv";                  UpgradeCmd="uv self update"                       }
+        [pscustomobject]@{ Name="uv";         Cmd="uv";       VerCmd="uv --version";       LatestMethod="gh:astral-sh/uv";                  UpgradeCmd="powershell -c `"irm https://astral.sh/uv/install.ps1 | iex`""  }
     )
+}
+
+# ======================================================================
+#  Module 2b: Dynamic Upgrade Command Resolution
+# ======================================================================
+
+# Detect if a tool was installed via winget and return its actual package ID
+function Find-WingetPackageId([string]$toolName, [string]$cmdPath) {
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { return $null }
+    # Map tool names to winget search hints
+    $hints = @{
+        'java'   = @('JDK', 'Java', 'Adoptium', 'Oracle', 'Temurin')
+        'node'   = @('NodeJS', 'Node.js')
+        'cmake'  = @('CMake')
+        'dotnet' = @('DotNet')
+        'go'     = @('GoLang', 'Go Programming')
+        'python' = @('Python')
+    }
+    $searchTerms = if ($hints.ContainsKey($toolName)) { $hints[$toolName] } else { @($toolName) }
+    foreach ($term in $searchTerms) {
+        try {
+            $out = winget list --name $term --accept-source-agreements --disable-interactivity 2>$null
+            # Parse lines that have 'winget' as source
+            foreach ($line in $out) {
+                if ($line -match 'winget' -and $line -match '(\S+\.\S+(?:\.\S+)*)') {
+                    # Extract the ID column (second whitespace-delimited token that looks like a package ID)
+                    $tokens = $line -split '\s{2,}'
+                    foreach ($tok in $tokens) {
+                        $tok = $tok.Trim()
+                        if ($tok -match '^[A-Za-z0-9]+\.[A-Za-z0-9]+(\.[A-Za-z0-9]+)*$' -and $tok -ne 'winget') {
+                            return $tok
+                        }
+                    }
+                }
+            }
+        } catch {}
+    }
+    return $null
+}
+
+# Detect if gsudo is available for elevation
+function Get-ElevationPrefix {
+    if (Get-Command gsudo -ErrorAction SilentlyContinue) { return "gsudo " }
+    return $null
+}
+
+# Resolve the actual upgrade command at runtime, considering:
+# - Whether the tool was installed via winget (use actual package ID)
+# - Whether choco needs elevation (gsudo prefix)
+# - Whether the tool is a manual install (suggest download URL)
+function Resolve-UpgradeCmd([string]$toolName, [string]$defaultCmd, [string]$cmdPath) {
+    $elev = Get-ElevationPrefix
+
+    switch ($toolName) {
+        'java' {
+            $id = Find-WingetPackageId 'java' $cmdPath
+            if ($id) { return "winget upgrade $id" }
+            if ($cmdPath -match 'Adoptium|Temurin') { return "winget upgrade EclipseAdoptium.Temurin.25.JDK" }
+            return $defaultCmd
+        }
+        'node' {
+            $id = Find-WingetPackageId 'node' $cmdPath
+            if ($id) { return "winget upgrade $id" }
+            return $defaultCmd
+        }
+        'composer' {
+            # composer self-update writes to ProgramData → needs elevation
+            if ($cmdPath -match 'ProgramData') {
+                if ($elev) { return "${elev}composer self-update" }
+                return "Run as Admin: composer self-update"
+            }
+            return "composer self-update"
+        }
+        { $_ -in 'gradle', 'maven' } {
+            # Check if installed via choco or manual (D:\zoo, C:\tools, etc.)
+            $chocoDir = "$env:ChocolateyInstall\lib"
+            if ($cmdPath -match 'Chocolatey|chocolatey|choco') {
+                if ($elev) { return "${elev}choco upgrade $toolName -y" }
+                return "Run as Admin: choco upgrade $toolName -y"
+            }
+            # Manual install → suggest download
+            $urls = @{ 'gradle' = 'https://gradle.org/releases/'; 'maven' = 'https://maven.apache.org/download.cgi' }
+            return "Manual: download from $($urls[$toolName])"
+        }
+        { $_ -in 'php', 'bazel', 'clang', 'gcc' } {
+            # choco-dependent tools: need elevation
+            if ($defaultCmd -match '^choco ') {
+                if ($elev) { return "${elev}$defaultCmd" }
+                return "Run as Admin: $defaultCmd"
+            }
+            return $defaultCmd
+        }
+        default { return $defaultCmd }
+    }
 }
 
 # ======================================================================
@@ -272,6 +366,47 @@ function Get-LatestVersionBatch([string[]]$methods) {
 #  Module 5: Status Classification & Conflict Detection
 # ======================================================================
 
+# Managed-path score: higher = more likely managed by a package manager (prefer to keep)
+function Get-ManagedScore([string]$path) {
+    if ($path -match '(?i)(homebrew|Cellar|winget|chocolatey|choco|scoop|nvm|rustup|cargo|npm|node_modules)') { return 3 }
+    if ($path -match '(?i)(Program Files|ProgramData|AppData\\Local\\Microsoft|dotnet)') { return 2 }
+    if ($path -match '(?i)(\\usr\\local|\\usr\\bin|\\opt)') { return 1 }
+    return 0  # manual / custom directory
+}
+
+# Pick the best install to keep among duplicates. Returns 0-based index.
+# Priority: highest version → managed path → earlier in PATH (lower index)
+function Select-BestInstall([array]$Installs) {
+    if ($Installs.Count -le 1) { return 0 }
+
+    $bestIdx = 0
+    for ($i = 1; $i -lt $Installs.Count; $i++) {
+        $current = $Installs[$i]
+        $best = $Installs[$bestIdx]
+
+        # Compare versions: higher wins
+        $curVer = $current.VersionParsed
+        $bestVer = $best.VersionParsed
+
+        if ($curVer -and $bestVer -and $curVer -ne $bestVer) {
+            if (Version-Lt $bestVer $curVer) {
+                $bestIdx = $i; continue
+            } elseif (Version-Lt $curVer $bestVer) {
+                continue
+            }
+        }
+
+        # Versions equal or unparseable: prefer managed path
+        $curScore = Get-ManagedScore $current.Path
+        $bestScore = Get-ManagedScore $best.Path
+        if ($curScore -gt $bestScore) {
+            $bestIdx = $i; continue
+        }
+        # If still tied, keep lower index (earlier in PATH)
+    }
+    return $bestIdx
+}
+
 # Determine what operation to recommend for a single install instance
 function Get-RecommendedOperation {
     param(
@@ -333,11 +468,26 @@ function Resolve-ToolStatus {
         })
     }
 
-    # Multiple installs → duplicate
+    # Resolve the actual upgrade command dynamically based on install path
+    $resolvedUpgrade = Resolve-UpgradeCmd $ToolDef.Name $ToolDef.UpgradeCmd $(if ($Installs -and $Installs.Count -gt 0) { $Installs[0].Path } else { '' })
+    $base['UpgradeCmd'] = $resolvedUpgrade
+
+    # Multiple installs → duplicate: pick best to keep, mark others for removal
     if ($Installs.Count -gt 1) {
+        $bestIdx = Select-BestInstall $Installs
         $enriched = @()
-        foreach ($inst in $Installs) {
-            $op = Get-RecommendedOperation 'duplicate' $inst.VersionParsed $LatestVersion $ToolDef.UpgradeCmd
+        for ($i = 0; $i -lt $Installs.Count; $i++) {
+            $inst = $Installs[$i]
+            $instUpgrade = Resolve-UpgradeCmd $ToolDef.Name $ToolDef.UpgradeCmd $inst.Path
+            if ($i -eq $bestIdx) {
+                # Best install: keep or upgrade if outdated
+                $op = Get-RecommendedOperation 'duplicate' $inst.VersionParsed $LatestVersion $instUpgrade
+                $verdict = [string]([char]0x2605 + ' ' + [char]0x4FDD + [char]0x7559)  # ★ 保留
+            } else {
+                # Not best: mark for removal
+                $op = [string]([char]0x2717 + ' ' + [char]0x79FB + [char]0x9664)  # ✗ 移除
+                $verdict = $op
+            }
             $enriched += [PSCustomObject]@{
                 Path          = $inst.Path
                 PathDisplay   = $inst.PathDisplay
@@ -345,12 +495,14 @@ function Resolve-ToolStatus {
                 VersionParsed = $inst.VersionParsed
                 Note          = $inst.Note
                 Operation     = $op
+                Verdict       = $verdict
             }
         }
         return [PSCustomObject]($base + @{
             Status      = 'duplicate'
             StatusLabel = [char]0x26A0 + ' ' + [char]0x91CD + [char]0x590D
             Installs    = $enriched
+            BestIndex   = $bestIdx
         })
     }
 
@@ -365,7 +517,7 @@ function Resolve-ToolStatus {
             Installs    = @([PSCustomObject]@{
                 Path = $inst.Path; PathDisplay = $inst.PathDisplay
                 VersionRaw = $inst.VersionRaw; VersionParsed = $inst.VersionParsed
-                Note = $inst.Note; Operation = $ToolDef.UpgradeCmd
+                Note = $inst.Note; Operation = $resolvedUpgrade
             })
         })
     }
@@ -437,7 +589,12 @@ function Format-ToolTable([array]$Results) {
         for ($i = 0; $i -lt $tool.Installs.Count; $i++) {
             $inst = $tool.Installs[$i]
             $opDisplay = Format-Operation $inst.Operation
-            $noteDisplay = Format-Note $inst.Note
+            # For duplicates, show Verdict (★ 保留 / ✗ 移除) in Note column
+            $noteDisplay = if ($tool.Status -eq 'duplicate' -and $inst.PSObject.Properties['Verdict']) {
+                $inst.Verdict
+            } else {
+                Format-Note $inst.Note
+            }
             if ($i -eq 0) {
                 $idx++
                 $lines += Format-TableRow "$idx" $tool.Name $tool.StatusLabel $inst.VersionRaw $inst.PathDisplay $tool.LatestVersion $opDisplay $noteDisplay

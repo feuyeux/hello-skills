@@ -256,8 +256,45 @@ check_tool() {
   local note="$VERSION_NOTE"
 
   if [ "$num_paths" -gt 1 ]; then
-    # ── Duplicate: emit one row per path ──
-    local i
+    # ── Duplicate: pick best install, mark others for removal ──
+    # Best = highest version → managed path → earlier in PATH
+    local best_idx=0 i
+
+    # Score function: managed path gets higher score
+    managed_score() {
+      local p="$1"
+      case "$p" in
+        *homebrew*|*Cellar*|*linuxbrew*|*nvm*|*rustup*|*cargo*|*npm*) echo 3 ;;
+        */usr/local/*|*/usr/bin/*|*/opt/*) echo 1 ;;
+        *) echo 0 ;;
+      esac
+    }
+
+    for (( i=1; i<num_paths; i++ )); do
+      collect_version_info "${paths[$i]}" "$ver_cmd"
+      local cur_ver="$VERSION_PARSED"
+      collect_version_info "${paths[$best_idx]}" "$ver_cmd"
+      local best_ver="$VERSION_PARSED"
+
+      # Higher version wins
+      if [ -n "$cur_ver" ] && [ -n "$best_ver" ] && [ "$cur_ver" != "$best_ver" ]; then
+        if version_lt "$best_ver" "$cur_ver"; then
+          best_idx=$i; continue
+        elif version_lt "$cur_ver" "$best_ver"; then
+          continue
+        fi
+      fi
+
+      # Same version: prefer managed path
+      local cur_score best_score
+      cur_score=$(managed_score "${paths[$i]}")
+      best_score=$(managed_score "${paths[$best_idx]}")
+      if [ "$cur_score" -gt "$best_score" ]; then
+        best_idx=$i
+      fi
+      # If still tied, keep lower index (earlier in PATH)
+    done
+
     for (( i=0; i<num_paths; i++ )); do
       local row_name version_i parsed_i note_i
       collect_version_info "${paths[$i]}" "$ver_cmd"
@@ -265,11 +302,18 @@ check_tool() {
       parsed_i="$VERSION_PARSED"
       note_i="$VERSION_NOTE"
 
-      local op_i
-      if [ -n "$parsed_i" ] && [ "$latest" != "N/A" ] && version_lt "$parsed_i" "$latest"; then
-        op_i="$upgrade_cmd"
+      local op_i verdict_i
+      if [ "$i" -eq "$best_idx" ]; then
+        # Best: keep or upgrade
+        if [ -n "$parsed_i" ] && [ "$latest" != "N/A" ] && version_lt "$parsed_i" "$latest"; then
+          op_i="$upgrade_cmd"
+        else
+          op_i="保留"
+        fi
+        verdict_i="★ 保留"
       else
-        op_i="保留"
+        op_i="✗ 移除"
+        verdict_i="✗ 移除"
       fi
 
       if [ "$i" -eq 0 ]; then
@@ -278,7 +322,7 @@ check_tool() {
         row_name="  ↳"
       fi
 
-      ROWS_DUP+=("$row_name|$version_i|⚠ 重复|$(truncate_str "${paths[$i]}" 40)|$latest|$op_i|$note_i")
+      ROWS_DUP+=("$row_name|$version_i|⚠ 重复|$(truncate_str "${paths[$i]}" 40)|$latest|$op_i|$verdict_i")
     done
   elif [ -n "$parsed_ver" ] && [ "$latest" != "N/A" ] && version_lt "$parsed_ver" "$latest"; then
     ROWS_OLD+=("$name|$display_ver|⚠ 过期|$(truncate_str "$primary" 40)|$latest|$upgrade_cmd|$note")
@@ -318,7 +362,7 @@ check_tool "flutter"    "flutter"  "flutter --version 2>&1 | head -1"           
 check_tool "gcc"        "gcc"      "gcc --version 2>&1 | head -1"                       "none"                      "xcode-select --install"
 check_tool "gemini-cli" "gemini"   "gemini --version 2>&1 | head -1"                    "none"                      "npm i -g @google/gemini-cli@latest"
 check_tool "gradle"     "gradle"   "gradle --version 2>&1 | grep -i gradle | head -1"   "brew:gradle"               "brew upgrade gradle"
-check_tool "hermes"     "hermes"   "hermes --version 2>&1 | head -1"                    "gh_tags:NousResearch/hermes-agent" "hermes update"
+check_tool "hermes"     "hermes"   "hermes --version 2>&1 | head -1"                    "gh_tags:NousResearch/hermes-agent" "PYTHONIOENCODING=utf-8 hermes update"
 check_tool "maven"      "mvn"      "mvn --version 2>&1 | head -1"                       "brew:maven"                "brew upgrade maven"
 check_tool "node"       "node"     "node --version 2>&1"                                "brew:node"                 "brew upgrade node"
 check_tool "npm"        "npm"      "npm --version 2>&1"                                 "none"                      "npm install -g npm"
