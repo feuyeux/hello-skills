@@ -367,7 +367,9 @@ function Get-LatestVersionBatch([string[]]$methods) {
 # ======================================================================
 
 # Managed-path score: higher = more likely managed by a package manager (prefer to keep)
+# AppData\Roaming gets lowest score (0) — prefer to remove user-roaming installs when versions tie
 function Get-ManagedScore([string]$path) {
+    if ($path -match '(?i)AppData\\Roaming') { return -1 }  # lowest: prefer removal
     if ($path -match '(?i)(homebrew|Cellar|winget|chocolatey|choco|scoop|nvm|rustup|cargo|npm|node_modules)') { return 3 }
     if ($path -match '(?i)(Program Files|ProgramData|AppData\\Local\\Microsoft|dotnet)') { return 2 }
     if ($path -match '(?i)(\\usr\\local|\\usr\\bin|\\opt)') { return 1 }
@@ -480,8 +482,8 @@ function Resolve-ToolStatus {
             $inst = $Installs[$i]
             $instUpgrade = Resolve-UpgradeCmd $ToolDef.Name $ToolDef.UpgradeCmd $inst.Path
             if ($i -eq $bestIdx) {
-                # Best install: keep or upgrade if outdated
-                $op = Get-RecommendedOperation 'duplicate' $inst.VersionParsed $LatestVersion $instUpgrade
+                # Best install: just keep (highest version wins)
+                $op = "keep"
                 $verdict = [string]([char]0x2605 + ' ' + [char]0x4FDD + [char]0x7559)  # ★ 保留
             } else {
                 # Not best: mark for removal

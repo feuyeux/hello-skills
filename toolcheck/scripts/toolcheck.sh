@@ -261,9 +261,11 @@ check_tool() {
     local best_idx=0 i
 
     # Score function: managed path gets higher score
+    # AppData/Roaming gets lowest (-1) — prefer to remove user-roaming installs
     managed_score() {
       local p="$1"
       case "$p" in
+        *AppData[/\\]Roaming*) echo -1 ;;
         *homebrew*|*Cellar*|*linuxbrew*|*nvm*|*rustup*|*cargo*|*npm*) echo 3 ;;
         */usr/local/*|*/usr/bin/*|*/opt/*) echo 1 ;;
         *) echo 0 ;;
@@ -304,12 +306,8 @@ check_tool() {
 
       local op_i verdict_i
       if [ "$i" -eq "$best_idx" ]; then
-        # Best: keep or upgrade
-        if [ -n "$parsed_i" ] && [ "$latest" != "N/A" ] && version_lt "$parsed_i" "$latest"; then
-          op_i="$upgrade_cmd"
-        else
-          op_i="保留"
-        fi
+        # Best: just keep (highest version wins)
+        op_i="保留"
         verdict_i="★ 保留"
       else
         op_i="✗ 移除"
