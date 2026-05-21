@@ -2,11 +2,12 @@
 
 ## Project Structure & Module Organization
 
-This repository is a small collection of independent skills. Each skill lives in its own top-level directory with a `SKILL.md` contract and a `scripts/` folder:
+This repository is a small collection of independent skills. Each skill lives in its own top-level directory with a `SKILL.md` (or `skill.md`) contract and optionally a `scripts/` folder:
 
+- `toolcheck/`: local development tool audit with cross-platform support (`scripts/toolcheck.sh` for Unix, `scripts/toolcheck.ps1` for Windows)
 - `translate-tts/`: Chinese-to-multilingual translation plus TTS (`scripts/translate_tts.py`, `scripts/run_translate_tts.sh`)
 - `ncm-to-wav/`: batch `.ncm` to `.wav` conversion (`scripts/ncm_to_wav.sh`)
-- `toolcheck/`: local development tool audit (`scripts/toolcheck.sh`)
+- `call-graph-image/`: Python call graph visualization (pure-prompt skill, no scripts)
 
 Top-level docs such as `README.md` and `get_latest.md` explain usage and version-source rules. Hidden folders like `.agents/` and `.claude/` are agent mirrors and are ignored by Git.
 
@@ -15,9 +16,18 @@ Top-level docs such as `README.md` and `get_latest.md` explain usage and version
 There is no repo-wide build step. Run skills from their script entry points:
 
 ```bash
+# toolcheck
+bash toolcheck/scripts/toolcheck.sh                                    # macOS/Linux
+pwsh -ExecutionPolicy Bypass -File toolcheck/scripts/toolcheck.ps1    # Windows
+
+# translate-tts
 bash translate-tts/scripts/run_translate_tts.sh --text "你好" --langs "英文,日文"
+
+# ncm-to-wav
 bash ncm-to-wav/scripts/ncm_to_wav.sh -i "$HOME/Music/网易云音乐"
-bash toolcheck/scripts/toolcheck.sh
+
+# call-graph-image (pure-prompt skill, invoked via AI agent skill system)
+# No direct script execution - agent analyzes code and generates prompt
 ```
 
 Checks before committing:
@@ -25,7 +35,9 @@ Checks before committing:
 ```bash
 bash -n translate-tts/scripts/run_translate_tts.sh
 bash -n ncm-to-wav/scripts/ncm_to_wav.sh
+bash -n toolcheck/scripts/toolcheck.sh
 python3 -m py_compile translate-tts/scripts/translate_tts.py
+pwsh -Command "Get-Content toolcheck/scripts/toolcheck.ps1 | Out-Null"  # PowerShell syntax check
 ```
 
 ## Coding Style & Naming Conventions
@@ -34,7 +46,8 @@ Follow the existing style:
 
 - Python: 4-space indentation, type hints where useful, standard-library-first code.
 - Bash: `#!/usr/bin/env bash` with `set -euo pipefail` for executable scripts.
-- Skill directories use kebab-case (`translate-tts`); entry documents are always named `SKILL.md`.
+- PowerShell: Use approved verbs, proper error handling with `$ErrorActionPreference`, UTF-8 encoding support.
+- Skill directories use kebab-case (`translate-tts`, `call-graph-image`); entry documents are named `SKILL.md` or `skill.md`.
 - Keep helper scripts under `scripts/` and name them by action, for example `run_translate_tts.sh`.
 
 No formatter or linter config is checked in, so keep changes PEP 8-compliant and shell syntax clean.

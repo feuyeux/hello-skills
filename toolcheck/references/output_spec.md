@@ -2,6 +2,14 @@
 
 本文档定义了 toolcheck 报告的固定结构，供需要解析输出的下游工具或 agent 参考。
 
+## 跨平台支持
+
+toolcheck 提供两个独立实现：
+- **Bash 版本** (`toolcheck.sh`): macOS/Linux/WSL
+- **PowerShell 版本** (`toolcheck.ps1`): Windows
+
+两者输出格式完全一致，但版本检测方法略有差异（Bash 使用 brew/gh API，PowerShell 使用 winget/gh API）。
+
 ## 报告文件
 
 - 路径：`~/toolcheck/report_MMdd_HHmmss.md`
@@ -51,7 +59,22 @@
   ⚠ 重复: N  |  ⚠ 过期: N  |  ✓ 正常: N  |  — 不适用: N  |  ✗ 缺失: N
 ```
 
-## 配置审计（仅控制台输出，不写入报告文件）
+## 重复工具去重标注
+
+当状态为 `⚠ 重复` 时，备注列会自动标注保留/移除建议：
+
+| 标注 | 含义 | 选择算法 |
+|------|------|---------|
+| `★ 保留` | 推荐保留的安装 | 1. 版本最高 → 2. 包管理器路径优先 → 3. PATH 顺序优先 |
+| `✗ 移除` | 建议移除的安装 | 其他所有重复安装 |
+
+示例：
+```
+|  3 | java  | ⚠ 重复 | 21.0.3    | D:\zoo\jdk-21.0.3\bin\java.exe      | 25.0.2 | 保留 | ✗ 移除 |
+|    |   ↳   | ⚠ 重复 | 25.0.0.36 | ...Eclipse Adoptium\jdk-25...\bin\  | 25.0.2 | winget upgrade ... | ★ 保留 |
+```
+
+## 配置审计（表格后输出）
 
 | 平台               | 标题                                | 审计范围                      |
 | ------------------ | ----------------------------------- | ----------------------------- |
@@ -65,3 +88,23 @@
 - Windows 特有：PATH 中不存在的目录
 - macOS/Linux 特有：Shell RC 文件中的旧版 Homebrew 路径、已弃用 conda activate 写法
 - 无问题时输出：`✅ 未发现可疑的硬编码版本路径或过期配置`
+
+**输出位置：**
+- Bash 版本：同时输出到控制台和报告文件
+- PowerShell 版本：默认仅控制台输出（使用 `-Console` 开关时）
+
+## 动态升级命令解析（PowerShell 特性）
+
+PowerShell 版本包含 `Resolve-UpgradeCmd` 函数，自动探测实际安装方式并生成正确的升级命令：
+
+| 安装方式 | 探测特征 | 生成命令 |
+|---------|---------|---------|
+| winget | `winget list` 能找到包 | `winget upgrade <PackageId>` |
+| choco | 路径含 `chocolatey` | `choco upgrade <pkg> -y` (需管理员) |
+| pip/conda | 路径含 `anaconda`/`miniconda`/`envs` | `pip install --upgrade <pkg>` |
+| 自更新器 | 工具自带更新命令 | `<tool> update` (如 `claude update`) |
+| 手动安装 | 无包管理器特征 | `Manual: download from <URL>` |
+
+特殊处理：
+- `hermes update`: 自动添加 `chcp 65001` + `PYTHONIOENCODING=utf-8` 避免 GBK 编码崩溃
+- `uv`/`hermes`: 自动检测 pip/conda 安装，优先使用 `pip install --upgrade`

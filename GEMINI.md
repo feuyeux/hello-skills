@@ -4,22 +4,24 @@ This repository, `hello-skills`, is a collection of specialized "skills" (plugin
 
 ## Project Overview
 
-- **Purpose:** To provide modular, script-based capabilities for translation, audio processing, and system diagnostics.
-- **Architecture:** The project is organized into skill-specific directories (kebab-case). Each directory MUST contain a `SKILL.md` contract and a `scripts/` folder.
+- **Purpose:** To provide modular, script-based capabilities for translation, audio processing, system diagnostics, and code visualization.
+- **Architecture:** The project is organized into skill-specific directories (kebab-case). Each directory MUST contain a `SKILL.md` (or `skill.md`) contract and optionally a `scripts/` folder (pure-prompt skills like `call-graph-image` have no scripts).
 - **Core Technologies:** 
   - **Python:** 4-space indentation, type hints, standard-library-first.
   - **Bash:** `#!/usr/bin/env bash` with `set -euo pipefail`.
+  - **PowerShell:** Cross-platform support for Windows tooling (toolcheck.ps1).
   - **Ollama:** Utilized for local LLM-based translation (defaults to `translategemma`).
-  - **Qwen3-TTS:** Used for multi-lingual speech synthesis.
+  - **Qwen3-TTS:** Used for multi-lingual speech synthesis (10 languages).
   - **Conda:** Preferred for managing specialized Python environments (e.g., `qwen3-tts`).
 
 ## Key Skills & Execution
 
 | Skill | Entry Point | Purpose |
 | --- | --- | --- |
+| **toolcheck** | `bash toolcheck/scripts/toolcheck.sh` (macOS/Linux) or `pwsh toolcheck/scripts/toolcheck.ps1` (Windows) | Local development tool audit with dedup/upgrade recommendations |
 | **translate-tts** | `bash translate-tts/scripts/run_translate_tts.sh` | Chinese-to-multilingual translation + TTS |
 | **ncm-to-wav** | `bash ncm-to-wav/scripts/ncm_to_wav.sh` | Batch `.ncm` to `.wav` conversion |
-| **toolcheck** | `bash toolcheck/scripts/toolcheck.sh` | Local development tool audit |
+| **call-graph-image** | Invoke via skill system in Python project | Generate GPT-image-2 prompt for blueprint-style architecture diagram |
 
 ## Development & Validation
 

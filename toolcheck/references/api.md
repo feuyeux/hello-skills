@@ -6,6 +6,11 @@ Windows 脚本 (`toolcheck.ps1`) 提供模块化函数 API。通过 dot-source �
 . toolcheck/scripts/toolcheck.ps1
 ```
 
+## 版本历史
+
+- **v1.0** (2026-05): 初始版本，基础工具扫描
+- **v2.0** (2026-05): 添加去重算法、动态升级命令解析、pip/conda 自动探测
+
 ## 核心函数
 
 | 函数                         | 返回值             | 说明                                             |
@@ -29,6 +34,9 @@ Windows 脚本 (`toolcheck.ps1`) 提供模块化函数 API。通过 dot-source �
 | `Get-LatestVersionBatch $methods`                                          | 并行拉取最新版本（winget/GitHub，15 秒超时）                  |
 | `Resolve-ToolStatus -ToolDef $def -Installs $installs -LatestVersion $ver` | 分类：normal/outdated/duplicate/missing/na                    |
 | `Get-RecommendedOperation $status $ver $latest $upgradeCmd`                | 确定推荐操作                                                  |
+| `Resolve-UpgradeCmd $toolName $cmdPath $upgradeTemplate`                   | 动态探测安装方式并生成正确的升级命令                          |
+| `Select-PreferredInstall $installs`                                        | 从重复安装中选择最佳保留项（版本→包管理器→PATH顺序）          |
+| `Find-WingetPackageId $toolName`                                           | 自动查找工具的 winget 包 ID                                   |
 
 ## 结果对象结构
 
@@ -47,9 +55,13 @@ Installs[]    : object[]      — 每个安装路径的详细信息：
   .VersionParsed : string     — 提取的 semver
   .Note          : string     — 错误/超时备注
   .Operation     : string     — 该安装的推荐操作
+  .IsPreferred   : bool       — 是否为去重算法选中的保留项（仅重复工具）
+  .Verdict       : string     — "★ 保留" 或 "✗ 移除"（仅重复工具）
 ```
 
-## 使用示例：筛选过期工具
+## 使用示例
+
+### 示例 1：筛选过期工具
 
 ```powershell
 . toolcheck/scripts/toolcheck.ps1
@@ -58,4 +70,44 @@ $results | Where-Object Status -eq 'outdated' | ForEach-Object {
     Write-Host "$($_.Name): $($_.Installs[0].VersionParsed) -> $($_.LatestVersion)"
     Write-Host "  Run: $($_.UpgradeCmd)"
 }
+```
+
+### 示例 2：自动升级所有过期工具
+
+```powershell
+. toolcheck/scripts/toolcheck.ps1
+$results = Invoke-ToolScan
+$outdated = $results | Where-Object Status -eq 'outdated'
+
+foreach ($tool in $outdated) {
+    $cmd = $tool.Installs[0].Operation
+    if ($cmd -notmatch '^Manual:') {
+        Write-Host "Upgrading $($tool.Name)..."
+        Invoke-Expression $cmd
+    }
+}
+```
+
+### 示例 3：处理重复安装
+
+```powershell
+. toolcheck/scripts/toolcheck.ps1
+$results = Invoke-ToolScan
+$duplicates = $results | Where-Object Status -eq 'duplicate'
+
+foreach ($tool in $duplicates) {
+    Write-Host "`n$($tool.Name) has multiple installations:"
+    foreach ($install in $tool.Installs) {
+        $marker = if ($install.IsPreferred) { "★ KEEP" } else { "✗ REMOVE" }
+        Write-Host "  $marker $($install.Path) (v$($install.VersionParsed))"
+    }
+}
+```
+
+### 示例 4：生成 JSON 报告
+
+```powershell
+. toolcheck/scripts/toolcheck.ps1
+$results = Invoke-ToolScan
+$results | ConvertTo-Json -Depth 5 | Out-File ~/toolcheck/report.json
 ```
