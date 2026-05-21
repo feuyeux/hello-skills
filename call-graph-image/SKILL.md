@@ -1,17 +1,18 @@
 ---
 name: call-graph-image
-description: Analyze Python codebase call graph, output a precise Mermaid diagram and a condensed GPT-image-2 prompt with up to 12-15 key nodes for artistic overview illustration
+description: Analyze Python codebase call graph, save a precise Mermaid diagram to a Markdown file, and save a condensed GPT-image-2 prompt with up to 12-15 key nodes to a .prompt file for artistic overview illustration
 ---
 
 # Call Graph Image Generator
 
 You are an expert code analyst and visual prompt engineer. You will:
 1. Deep-analyze the Python project's method-level call graph
-2. Output a **detailed Mermaid diagram** for technical documentation
-3. Output a **condensed GPT-image-2 prompt** (up to 12-15 key nodes) for visual communication
+2. Save a **detailed Mermaid diagram** to a Markdown file for technical documentation
+3. Save a **condensed GPT-image-2 prompt** (up to 12-15 key nodes) to a `.prompt`
+   file for visual communication
 
-For small and medium projects, output both sections in a single response. For large projects,
-ask one concise clarification about entry points before producing the diagram.
+For small and medium projects, create both output files in the current project. For large
+projects, ask one concise clarification about entry points before creating files.
 
 ---
 
@@ -53,7 +54,8 @@ dynamic or unresolved instead of pretending it is known.
 
 ## Phase 2: Mermaid Diagram (Full Detail)
 
-Output a complete, syntactically valid Mermaid flowchart.
+Create a complete, syntactically valid Mermaid flowchart and save it in a Markdown file.
+Do not leave the Mermaid diagram only in the chat response.
 
 ### Syntax Rules (CRITICAL - avoid common errors)
 
@@ -128,7 +130,7 @@ classDef palette:
 
 ## Phase 3: GPT-image-2 Prompt (Condensed Overview)
 
-After the Mermaid diagram, output a GPT-image-2 prompt showing a **high-level overview**
+After the Mermaid diagram, create a GPT-image-2 prompt showing a **high-level overview**
 condensed to 12-15 key nodes maximum. For small projects, use fewer nodes rather than
 padding with artificial concepts.
 
@@ -142,7 +144,7 @@ padding with artificial concepts.
 
 ### Prompt Structure
 
-Output as ready-to-paste text block:
+Save as a ready-to-paste plain text prompt:
 
 ---
 
@@ -173,25 +175,48 @@ Visual style:
 - Node colors: Entry=indigo wash, Logic=sage green wash, Decision=amber wash, IO=rose wash, External=warm grey wash, Data=cream/gold wash
 - Connections: Elegant bezier curves with hand-drawn arrowheads, condition labels in small italic
 - Layout: Top-to-bottom flow, branching side-by-side, loop-back as graceful teal arc
-- Title: "[Project Name] - Architecture Overview" in calligraphic hand-lettering at top
+- Typography: Use a clean, standard, highly readable sans-serif font such as Inter,
+  Helvetica, Arial, or Noto Sans. Do not use calligraphy, decorative lettering, script
+  fonts, or artistic word art.
+- Font sizes: Title 34-40px equivalent, node labels 18-22px equivalent, edge labels
+  14-16px equivalent, legend text 14-16px equivalent.
+- Font colors: Use charcoal or near-black text (#1f2937 or similar) on light nodes;
+  use white or near-white text only when a node fill is dark enough for strong contrast.
+- Title: "[Project Name] - Architecture Overview" at top in the same clean sans-serif
+  font, bold or semibold, never decorative
 - Legend: Bottom-right, miniature node samples with color labels
 - Quality: Museum-exhibition-grade technical illustration, generous whitespace, golden-ratio spacing
 
-IMPORTANT: Each node must display its label text clearly and legibly. Keep the diagram clean and readable. Prioritize beauty and clarity over completeness.
+IMPORTANT: Each node must display its label text clearly and legibly. Keep the diagram clean and readable. Prioritize text clarity over artistic typography.
 
 ---
 
-## Output Format
+## File Output
 
-Your response must contain exactly two sections:
+Create exactly two output files unless the user requested different paths:
 
-### Section 1: Mermaid Diagram
+### Mermaid Markdown File
 
-Output in a mermaid code block. Add brief note: "Save as .mmd file. Render with mermaid.live, VS Code plugin, or mmdc CLI."
+- File name: `<project-name>-call-graph.md`
+- Contents:
+  - H1 title: `# <Project Name> Call Graph`
+  - Short scope note with analyzed entry points and depth limit
+  - Mermaid fenced code block containing the diagram
+  - Short render note: `Render with mermaid.live, VS Code Mermaid plugin, or mmdc CLI.`
 
-### Section 2: GPT-image-2 Prompt
+### GPT-image-2 Prompt File
 
-The condensed prompt text ready to paste. Add brief note: "Paste directly into GPT-image-2. Best at 1792x1024 or higher."
+- File name: `<project-name>-architecture.prompt`
+- Contents: only the condensed GPT-image-2 prompt text, with no Markdown fence and no
+  extra commentary.
+
+### Final Chat Response
+
+Keep the final chat response brief. Report only:
+- Mermaid Markdown file path
+- GPT-image-2 prompt file path
+- Any important unresolved/dynamic call targets
+- One-line render/use note
 
 ---
 

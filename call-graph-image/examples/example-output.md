@@ -1,13 +1,22 @@
 # Example Output
 
-Below is a shortened example of what the skill produces when run against a small
-FastAPI order service.
+Below is a shortened example of the files produced when the skill runs against a
+small FastAPI order service.
 
 ---
 
-## Section 1: Mermaid Diagram
+## Generated Files
 
-Save as .mmd file. Render with mermaid.live, VS Code plugin, or mmdc CLI.
+- `order-service-call-graph.md`
+- `order-service-architecture.prompt`
+
+## `order-service-call-graph.md`
+
+````markdown
+# Order Service Call Graph
+
+Scope: FastAPI order routes, traced to depth 6. Entry points analyzed:
+`OrderRouter.create_order(request)` and `OrderRouter.get_order(order_id)`.
 
 ```mermaid
 graph TD
@@ -63,10 +72,12 @@ graph TD
     class node_http_error error
 ```
 
-## Section 2: GPT-image-2 Prompt
+Render with mermaid.live, VS Code Mermaid plugin, or mmdc CLI.
+````
 
-Paste directly into GPT-image-2. Best at 1792x1024 or higher.
+## `order-service-architecture.prompt`
 
+```text
 Create a hand-crafted architectural blueprint illustration of a software system
 execution flow.
 
@@ -109,9 +120,21 @@ Visual style:
 - Node colors: Entry=indigo wash, Logic=sage green wash, Decision=amber wash, IO=rose wash, External=warm grey wash, Data=cream/gold wash
 - Connections: Elegant bezier curves with hand-drawn arrowheads, condition labels in small italic
 - Layout: Top-to-bottom flow, branching side-by-side, loop-back as graceful teal arc only if a loop exists
-- Title: "Order Service - Architecture Overview" in calligraphic hand-lettering at top
+- Typography: Use a clean, standard, highly readable sans-serif font such as Inter, Helvetica, Arial, or Noto Sans. Do not use calligraphy, decorative lettering, script fonts, or artistic word art.
+- Font sizes: Title 34-40px equivalent, node labels 18-22px equivalent, edge labels 14-16px equivalent, legend text 14-16px equivalent.
+- Font colors: Use charcoal or near-black text (#1f2937 or similar) on light nodes; use white or near-white text only when a node fill is dark enough for strong contrast.
+- Title: "Order Service - Architecture Overview" at top in the same clean sans-serif font, bold or semibold, never decorative
 - Legend: Bottom-right, miniature node samples with color labels
 - Quality: Museum-exhibition-grade technical illustration, generous whitespace, golden-ratio spacing
 
 IMPORTANT: Each node must display its label text clearly and legibly. Keep the
-diagram clean and readable. Prioritize beauty and clarity over completeness.
+diagram clean and readable. Prioritize text clarity over artistic typography.
+```
+
+## Final Chat Response
+
+```text
+Saved Mermaid diagram: order-service-call-graph.md
+Saved GPT-image-2 prompt: order-service-architecture.prompt
+Render the Mermaid block with mermaid.live, VS Code Mermaid plugin, or mmdc CLI.
+```
