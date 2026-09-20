@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style>
+:root{
+  --paper:#f6f1e7; --ink:#33302a; --muted:#8a8172; --accent:#b3552e;
+  --accent-soft:rgba(179,85,46,.14); --card:#fffdf7; --line:#e3dac8;
+  --hl:rgba(224,168,60,.28);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:#181612; --ink:#d6cfc2; --muted:#8f887b; --accent:#e08a5f;
+    --accent-soft:rgba(224,138,95,.16); --card:#211e18; --line:#3a352b;
+    --hl:rgba(224,168,60,.24);
+  }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:Georgia,'Times New Roman','Hiragino Mincho ProN','Yu Mincho',
+    'Noto Serif CJK SC','Noto Serif CJK JP',serif;
+  font-size:19px; line-height:2;
+}
+#bar{position:fixed; top:0; left:0; right:0; height:3px; z-index:9}
+#bar i{display:block; height:100%; width:0; background:var(--accent);
+  transition:width .4s ease}
+header{max-width:680px; margin:0 auto; padding:54px 24px 4px; text-align:center}
+h1{font-size:25px; font-weight:600; margin:0; letter-spacing:.5px; line-height:1.5}
+#meta{color:var(--muted); font-size:13px; margin-top:6px;
+  font-family:system-ui,sans-serif; letter-spacing:.05em}
+#tip{color:var(--muted); font-size:13.5px; margin-top:16px;
+  font-family:system-ui,sans-serif; transition:opacity 1.2s}
+#tip .k{border:1px solid var(--line); border-radius:5px; padding:1px 7px;
+  font-size:12px; background:var(--card)}
+#tip.gone{opacity:0}
+main{max-width:680px; margin:0 auto; padding:26px 24px 140px}
+p.par{margin:0 0 1.35em}
+.s{cursor:pointer; border-radius:3px; padding:1px 2px;
+  transition:background .15s}
+.s:hover{background:var(--accent-soft)}
+.s.seen{box-shadow:inset 0 -.55em 0 var(--hl)}
+.s.open{background:var(--accent-soft); box-shadow:inset 0 -.55em 0 var(--hl)}
+.card{
+  background:var(--card); border:1px solid var(--line);
+  border-left:4px solid var(--accent); border-radius:10px;
+  padding:16px 22px 12px; margin:8px 0 28px;
+  box-shadow:0 4px 18px rgba(0,0,0,.07);
+  animation:pop .18s ease-out; font-size:16px; line-height:1.85;
+}
+@keyframes pop{from{opacity:0; transform:translateY(-5px)} to{opacity:1}}
+.card .x{float:right; cursor:pointer; color:var(--muted);
+  font-family:system-ui,sans-serif; font-size:14px;
+  border:none; background:none; padding:4px 8px; margin:-4px -8px 0 0}
+.card .x:hover{color:var(--ink)}
+.trans{margin:2px 0 4px; font-size:17px}
+h3{font:600 12px/1.4 system-ui,sans-serif; color:var(--accent);
+  letter-spacing:.14em; margin:18px 0 8px}
+.w{display:flex; gap:16px; padding:8px 0; border-bottom:1px dashed var(--line)}
+.w:last-child{border-bottom:none}
+.w .wd{flex:0 0 34%; min-width:0; overflow-wrap:break-word}
+.w .wd b{font-size:17px}
+.w .ph{color:var(--muted); font-size:13px; font-family:Consolas,'SF Mono',monospace}
+.w .mn{flex:1; min-width:0}
+.w .note{color:var(--muted); font-size:14px; margin-top:2px}
+.g{margin:10px 0}
+.g b{color:var(--accent)}
+.g .frag{font-style:italic}
+.c{margin:12px 0; padding-left:14px; border-left:2px solid var(--line)}
+.c b{color:var(--accent)}
+footer{max-width:680px; margin:0 auto; padding:0 24px 60px; text-align:center;
+  color:var(--muted); font-size:12px; font-family:system-ui,sans-serif}
+@media (max-width:480px){
+  body{font-size:17px}
+  .w{flex-direction:column; gap:2px}
+}
+</style>
+</head>
+<body>
+<div id="bar"><i></i></div>
+<header>
+  <h1></h1>
+  <div id="meta"></div>
+  <p id="tip">点击任意一句，讲解就地展开 <span class="k">←</span> <span class="k">→</span> 逐句往下读</p>
+</header>
+<main id="book"></main>
+<footer>foreign-close-reading · 阅读进度已自动保存在本机</footer>
+<script type="application/json" id="data">__DATA__</script>
+<script>
+var DATA = JSON.parse(document.getElementById('data').textContent);
+var KEY = 'fcr-seen-' + (DATA.title || 'book').slice(0, 48);
+var book = document.getElementById('book');
+var bar = document.querySelector('#bar i');
+var meta = document.getElementById('meta');
+var tip = document.getElementById('tip');
+var SEP = DATA.lang === 'cjk' ? '' : ' ';
+
+document.querySelector('h1').textContent = DATA.title || '';
+document.title = DATA.title || '精读';
+
+var seen = {};
+try { seen = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+
+var cur = null;
+DATA.sentences.forEach(function (s) {
+  if (!cur || +s.para !== +cur.dataset.para) {
+    cur = document.createElement('p');
+    cur.className = 'par';
+    cur.dataset.para = s.para;
+    book.appendChild(cur);
+  }
+  var sp = document.createElement('span');
+  sp.className = 's' + (seen[s.id] ? ' seen' : '');
+  sp.dataset.id = s.id;
+  sp.textContent = s.text + (s.text ? SEP : '');
+  cur.appendChild(sp);
+});
+
+function esc(t) {
+  return String(t).replace(/[&<>]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c];
+  });
+}
+
+var openCard = null, openSpan = null;
+
+function cardHTML(s) {
+  var h = '<button class="x" title="收起">✕</button>';
+  var empty = true;
+  if (s.translation) {
+    h += '<p class="trans">' + esc(s.translation) + '</p>'; empty = false;
+  }
+  if (s.words && s.words.length) {
+    h += '<h3>🔤 生词</h3>'; empty = false;
+    s.words.forEach(function (w) {
+      h += '<div class="w"><div class="wd"><b>' + esc(w.w) + '</b>'
+        + (w.p ? ' <span class="ph">' + esc(w.p) + '</span>' : '')
+        + '</div><div class="mn">' + esc(w.m || '')
+        + (w.n ? '<div class="note">' + esc(w.n) + '</div>' : '')
+        + '</div></div>';
+    });
+  }
+  if (s.grammar && s.grammar.length) {
+    h += '<h3>🧩 语法</h3>'; empty = false;
+    s.grammar.forEach(function (g) {
+      h += '<div class="g">' + (g.t ? '<b>' + esc(g.t) + '</b> — ' : '')
+        + esc(g.d) + '</div>';
+    });
+  }
+  if (s.culture && s.culture.length) {
+    h += '<h3>🌍 文化</h3>'; empty = false;
+    s.culture.forEach(function (c) {
+      h += '<div class="c">' + (c.t ? '<b>' + esc(c.t) + '</b><br>' : '')
+        + esc(c.d) + '</div>';
+    });
+  }
+  if (empty) h += '<p class="trans" style="color:var(--muted)">这一句还没有讲解。</p>';
+  return h;
+}
+
+function closeCard() {
+  if (openCard) {
+    openCard.remove();
+    openSpan.classList.remove('open');
+    openCard = openSpan = null;
+  }
+}
+
+function open(span) {
+  var s = null;
+  for (var i = 0; i < DATA.sentences.length; i++)
+    if (DATA.sentences[i].id == span.dataset.id) { s = DATA.sentences[i]; break; }
+  if (!s) return;
+  if (openSpan === span) { closeCard(); return; }
+  closeCard();
+  openSpan = span;
+  span.classList.add('open', 'seen');
+  var card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = cardHTML(s);
+  span.closest('p').after(card);
+  card.querySelector('.x').onclick = closeCard;
+  openCard = card;
+  seen[s.id] = 1;
+  save();
+  tip.classList.add('gone');
+}
+
+function save() {
+  localStorage.setItem(KEY, JSON.stringify(seen));
+  bar.style.width = (100 * Math.min(1, Object.keys(seen).length / DATA.sentences.length)) + '%';
+  meta.textContent = DATA.subtitle
+    ? DATA.subtitle + ' · ' + DATA.sentences.length + ' 句 · 已读 ' + Object.keys(seen).length + ' 句'
+    : DATA.sentences.length + ' 句 · 已读 ' + Object.keys(seen).length + ' 句';
+}
+
+// 换行句子的行距间隙不参与 hit-test（点击会落到 <p> 上），
+// 兜底：按几何距离找最近的句子，保证点这一行任何位置都能命中
+function sentenceAt(x, y, p) {
+  var spans = p.querySelectorAll('.s');
+  var best = null, bestD = Infinity;
+  for (var i = 0; i < spans.length; i++) {
+    var rs = spans[i].getClientRects();
+    for (var k = 0; k < rs.length; k++) {
+      var r = rs[k];
+      var dx = x < r.left ? r.left - x : (x > r.right ? x - r.right : 0);
+      var dy = y < r.top ? r.top - y : (y > r.bottom ? y - r.bottom : 0);
+      var d = Math.sqrt(dx * dx + dy * dy);
+      if (d < bestD) { bestD = d; best = spans[i]; }
+    }
+  }
+  return bestD < 24 ? best : null;
+}
+
+book.addEventListener('click', function (e) {
+  var sp = e.target.closest('.s');
+  if (!sp) {
+    var p = e.target.closest('p.par');
+    if (p) sp = sentenceAt(e.clientX, e.clientY, p);
+  }
+  if (sp) open(sp);
+});
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') { closeCard(); return; }
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  var spans = Array.prototype.slice.call(book.querySelectorAll('.s'));
+  var i = openSpan ? spans.indexOf(openSpan) : -1;
+  if (e.key === 'ArrowRight') i = Math.min(i + 1, spans.length - 1);
+  else i = Math.max(i - 1, 0);
+  var t = spans[i];
+  if (t && t !== openSpan) {
+    open(t);
+    t.scrollIntoView({ block: 'center' });
+  }
+});
+
+save();
+</script>
+</body>
+</html>

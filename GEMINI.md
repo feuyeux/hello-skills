@@ -22,6 +22,7 @@ This repository, `hello-skills`, is a collection of specialized "skills" (plugin
 | **translate-tts** | `bash translate-tts/scripts/run_translate_tts.sh` | Chinese-to-multilingual translation + TTS |
 | **ncm-to-wav** | `bash ncm-to-wav/scripts/ncm_to_wav.sh` | Batch `.ncm` to `.wav` conversion |
 | **call-graph-image** | Invoke via skill system in Python project | Generate GPT-image-2 prompt for blueprint-style architecture diagram |
+| **foreign-close-reading** | `python3 foreign-close-reading/scripts/split_sentences.py` + `build_reader.py` | Sentence-by-sentence close reading of foreign-language originals into an interactive HTML reader |
 
 ## Development & Validation
 

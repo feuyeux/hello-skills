@@ -8,6 +8,7 @@
 - **`translate-tts`**：中文翻译后生成多语种语音（Translation + TTS），支持 10 种语言。
 - **`ncm-to-wav`**：网易云 `.ncm` 格式批量转换为 `.wav`。
 - **`call-graph-image`**：分析 Python 项目的方法级调用图，生成 GPT-image-2 提示词，输出建筑蓝图风格的架构拓扑图。
+- **`foreign-close-reading`**：外语原著逐句精读（单词/语法讲解 + 典故/历史/人文/幽默解读），产出单文件交互式 HTML 阅读器（点句即讲）。
 
 ---
 
@@ -127,6 +128,36 @@ Python 项目调用图可视化工具，生成建筑蓝图风格的架构拓扑�
 
 ---
 
+## 5. foreign-close-reading
+
+外语原著（英/日/法/德等）逐句精读：把原文按句切分，由 AI Agent 为每一句生成中文翻译、生词讲解、**这句本身**的语法解析与典故/历史/人文/幽默等文化解读，最终产出单文件交互式 HTML 阅读器——正文如纸质书连续排版，点击任意句子讲解就地展开，←/→ 逐句往下读，进度自动保存。
+
+### 原理图 (Mermaid)
+
+```mermaid
+flowchart LR
+    A["原著 txt/md"] --> B["split_sentences.py 按句切分"]
+    B --> C["sentences.json"]
+    C --> D["AI Agent 逐句生成 data.json：翻译/生词/语法/文化"]
+    D --> E["build_reader.py 注入模板"]
+    E --> F["单文件 HTML 阅读器：点句即讲"]
+```
+
+### 快速用法
+```bash
+# 1. 切分句子（切分与构建是确定性脚本，中间的讲解由模型按 SKILL.md 的质量标准生成）
+python3 foreign-close-reading/scripts/split_sentences.py book.txt --limit 60 --out sentences.json
+# 2. 生成 data.json 后构建阅读器
+python3 foreign-close-reading/scripts/build_reader.py --data data.json --out "书名-精读.html"
+```
+
+### 关键点
+- **切分**：处理缩写（Mr./e.g.）、小数、日语与法语引号，保留段落结构（`lang` 自动检测 latin/cjk）。
+- **讲解质量**：生词只挑中高级（CEFR B1+）；语法解析这句的实际结构而非通用规则；文化解读宁缺毋滥、句句扣原文。
+- **交互**：纸质书排版、点句就地展开、←/→ 键逐句导航、进度条 + 荧光笔标记、localStorage 自动保存阅读进度。
+
+---
+
 ## 项目规范
 
 ### 目录结构
@@ -148,7 +179,7 @@ Python 项目调用图可视化工具，生成建筑蓝图风格的架构拓扑�
 - **跨平台支持**：toolcheck 同时支持 macOS/Linux（Bash）和 Windows（PowerShell）
 
 ### 技能发现
-技能通过符号链接安装到 `~/.claude/skills/` 供 Claude Code 发现。打包使用 skill-creator 工具链：
+技能通过符号链接安装到 `~/.agents/skills/`（供 ZCode 等 Agent 发现），再从那里符号链接到 `~/.claude/skills/` 供 Claude Code 发现。打包使用 skill-creator 工具链：
 ```bash
 python3 ~/.claude/skills/skill-creator/scripts/init_skill.py <name> --path .
 python3 ~/.claude/skills/skill-creator/scripts/package_skill.py ./<name>

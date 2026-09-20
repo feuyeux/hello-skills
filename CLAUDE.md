@@ -14,6 +14,7 @@ A collection of independent AI agent skills (for Claude Code, Gemini CLI, Codex,
 | `translate-tts` | `bash translate-tts/scripts/run_translate_tts.sh --text "你好" --langs "英文,日文"` | Chinese → multi-language translation + TTS via Ollama + Qwen3-TTS (requires conda env `qwen3-tts`). Supports 10 languages with concurrent translation and retry logic. |
 | `ncm-to-wav` | `bash ncm-to-wav/scripts/ncm_to_wav.sh -i "$HOME/Music/网易云音乐"` | Batch decode NetEase `.ncm` files to `.wav` with optional output directory, force overwrite, and source deletion. |
 | `call-graph-image` | Invoke via `/call-graph-image` skill in any Python project | Analyzes Python codebase method-level call graph, generates GPT-image-2 prompt for blueprint-style architecture topology diagram. Auto-detects project type (web/library/CLI/pipeline). |
+| `foreign-close-reading` | `python3 foreign-close-reading/scripts/split_sentences.py book.txt --out sentences.json`, then `build_reader.py --data data.json --out reader.html` | Sentence-by-sentence close reading of foreign-language originals: splits text into sentences, agent generates translation/vocabulary/grammar/culture notes per sentence, outputs a single-file interactive HTML reader (click any sentence to expand its notes inline). |
 
 ## Build & Validation
 
@@ -23,6 +24,8 @@ No repo-wide build step. Syntax checks before committing:
 bash -n translate-tts/scripts/run_translate_tts.sh
 bash -n ncm-to-wav/scripts/ncm_to_wav.sh
 python3 -m py_compile translate-tts/scripts/translate_tts.py
+python3 -m py_compile foreign-close-reading/scripts/split_sentences.py
+python3 -m py_compile foreign-close-reading/scripts/build_reader.py
 ```
 
 ## Coding Style

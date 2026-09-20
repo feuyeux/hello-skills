@@ -8,6 +8,7 @@ This repository is a small collection of independent skills. Each skill lives in
 - `translate-tts/`: Chinese-to-multilingual translation plus TTS (`scripts/translate_tts.py`, `scripts/run_translate_tts.sh`)
 - `ncm-to-wav/`: batch `.ncm` to `.wav` conversion (`scripts/ncm_to_wav.sh`)
 - `call-graph-image/`: Python call graph visualization (pure-prompt skill, no scripts)
+- `foreign-close-reading/`: sentence-by-sentence close reading of foreign-language originals into an interactive HTML reader (`scripts/split_sentences.py`, `scripts/build_reader.py`, `assets/reader_template.html`)
 
 Top-level docs such as `README.md` and `get_latest.md` explain usage and version-source rules. Hidden folders like `.agents/` and `.claude/` are agent mirrors and are ignored by Git.
 
@@ -37,6 +38,8 @@ bash -n translate-tts/scripts/run_translate_tts.sh
 bash -n ncm-to-wav/scripts/ncm_to_wav.sh
 bash -n toolcheck/scripts/toolcheck.sh
 python3 -m py_compile translate-tts/scripts/translate_tts.py
+python3 -m py_compile foreign-close-reading/scripts/split_sentences.py
+python3 -m py_compile foreign-close-reading/scripts/build_reader.py
 pwsh -Command "Get-Content toolcheck/scripts/toolcheck.ps1 | Out-Null"  # PowerShell syntax check
 ```
 
