@@ -8,7 +8,7 @@
 - **`translate-tts`**：中文翻译后生成多语种语音（Translation + TTS），支持 10 种语言。
 - **`ncm-to-wav`**：网易云 `.ncm` 格式批量转换为 `.wav`。
 - **`call-graph-image`**：分析 Python 项目的方法级调用图，生成 GPT-image-2 提示词，输出建筑蓝图风格的架构拓扑图。
-- **`foreign-close-reading`**：外语原著逐句精读（单词/语法讲解 + 典故/历史/人文/幽默解读），产出单文件交互式 HTML 阅读器（点句即讲）。
+- **`foreign-close-reading`**：外语原著逐句精读（单词/语法讲解 + 典故/历史/人文/幽默解读），产出单文件交互式 HTML 阅读器（讲解就地展开、10 种主题、俄/法/日/韩深度适配）。
 
 ---
 
@@ -130,16 +130,17 @@ Python 项目调用图可视化工具，生成建筑蓝图风格的架构拓扑�
 
 ## 5. foreign-close-reading
 
-外语原著（英/日/法/德等）逐句精读：把原文按句切分，由 AI Agent 为每一句生成中文翻译、生词讲解、**这句本身**的语法解析与典故/历史/人文/幽默等文化解读，最终产出单文件交互式 HTML 阅读器——正文如纸质书连续排版，点击任意句子讲解就地展开，←/→ 逐句往下读，进度自动保存。
+外语原著（英/俄/法/日/韩/德/西等）逐句精读：把原文按句切分，由 AI Agent 为每一句生成中文翻译、生词讲解、**这句本身**的语法解析与典故/历史/人文/幽默等文化解读，最终产出单文件交互式 HTML 阅读器——正文如纸质书连续排版，点击任意句子，讲解卡片就在这一句正下方展开，←/→ 逐句往下读，进度自动保存。
 
 ### 原理图 (Mermaid)
 
 ```mermaid
 flowchart LR
-    A["原著 txt/md"] --> B["split_sentences.py 按句切分"]
+    A["原著 txt/md"] --> B["split_sentences.py 按句切分/还原段落"]
     B --> C["sentences.json"]
     C --> D["AI Agent 逐句生成 data.json：翻译/生词/语法/文化"]
-    D --> E["build_reader.py 注入模板"]
+    D --> D2["check_data.py 自检：漏译/占位符/字段缺失"]
+    D2 --> E["build_reader.py 注入模板"]
     E --> F["单文件 HTML 阅读器：点句即讲"]
 ```
 
@@ -147,14 +148,16 @@ flowchart LR
 ```bash
 # 1. 切分句子（切分与构建是确定性脚本，中间的讲解由模型按 SKILL.md 的质量标准生成）
 python3 foreign-close-reading/scripts/split_sentences.py book.txt --limit 60 --out sentences.json
-# 2. 生成 data.json 后构建阅读器
+# 2. 生成 data.json 后先自检，再构建阅读器
+python3 foreign-close-reading/scripts/check_data.py --data data.json --sentences sentences.json
 python3 foreign-close-reading/scripts/build_reader.py --data data.json --out "书名-精读.html"
 ```
 
 ### 关键点
-- **切分**：处理缩写（Mr./e.g.）、小数、日语与法语引号，保留段落结构（`lang` 自动检测 latin/cjk）。
-- **讲解质量**：生词只挑中高级（CEFR B1+）；语法解析这句的实际结构而非通用规则；文化解读宁缺毋滥、句句扣原文。
-- **交互**：纸质书排版、点句就地展开、←/→ 键逐句导航、进度条 + 荧光笔标记、localStorage 自动保存阅读进度。
+- **切分**：按语言分别处理——俄语缩写（`т. е.`/`г.`）与旧正字法、法语 `M.` 与 `« »` 标点空格、日语 `「」` 会话与青空文库 `《ルビ》` 剥离、韩语 `"…" 하고 말했다` 合句；硬换行（Gutenberg/青空文库）自动接回自然段。
+- **讲解质量**：生词只挑中高级（CEFR B1+），日语给假名、俄语给标重音 IPA、韩语给罗马字；语法解析这句的实际结构而非通用规则；文化解读宁缺毋滥、句句扣原文。
+- **自检**：`check_data.py` 拦截漏译文、空条目、`不支持`/`undefined` 等占位符、原文被改写等问题，构建前必须 0 error。
+- **交互**：讲解卡片紧跟被点句子（长段落也不会跑到段尾）、学过的句子只压暗不再画线、←/→ 键逐句导航（卡片复用不跳页）、10 种主题 + 字号/行距/版心可调、localStorage 分开保存进度与外观。
 
 ---
 
