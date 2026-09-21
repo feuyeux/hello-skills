@@ -5,13 +5,13 @@ description: 外语原著逐句精读，产出一个本地可直接打开的交�
 
 # 外语原著逐句精读
 
-产出物：一个单文件交互式 HTML 阅读器。正文连续排版如纸质书，点任意一句，讲解卡片**紧贴这一句下方**展开（翻译 → 🔤 生词 → 🧩 语法 → 🌍 文化 → 🗣 母语者），←/→ 逐句往下读；学过的句子自动压暗且**不再画下划线**，正在读的那句才高亮。右上角可切换 10 种主题、字号、行距、版心。进度与外观都存在浏览器本机。
+产出物：一个交互式 HTML 阅读器。正文连续排版如纸质书，点任意一句，讲解卡片**紧贴这一句下方**展开（翻译 → 🔤 生词 → 🧩 语法 → 🌍 文化 → 🗣 母语者），←/→ 逐句往下读；学过的句子自动压暗且**不再画下划线**，正在读的那句才高亮。左侧是可伸缩的**章回导航**（点一条跳到那一章，每条显示已读/总句数），右上角只有一个外观按钮，展开面板里选 10 种主题、字号、行距、版心、目录宽度。整本 html **上限 500 KB，以章回为单位向下取整**——超了就按章回拆成多个分卷，同一章绝不跨卷。进度与外观都存在浏览器本机。
 
 ## 工作流程
 
 ### 1. 确定文本与范围
 
-- 输入须是纯文本（.txt / .md）。若是 epub/pdf/docx，先用 pandoc（`pandoc -t plain`）等工具提取正文，删掉版权页、目录、译本序等非正文噪音。Gutenberg 文本请把 `*** START/END OF THE PROJECT GUTENBERG EBOOK ***` 之间的正文留下，头尾的 license 段落删掉。
+- 输入须是纯文本（.txt / .md）。`.md` 源要先剥掉 YAML 头、`[文字](链接)`、`[^脚注]`、`**强调**` 等记号——它们留在正文里会被当成句子的一部分；硬折行不用管，切分脚本自己会接回。若是 epub/pdf/docx，先用 pandoc（`pandoc -t plain`）等工具提取正文，删掉版权页、目录、译本序等非正文噪音。Gutenberg 文本请把 `*** START/END OF THE PROJECT GUTENBERG EBOOK ***` 之间的正文留下，头尾的 license 段落删掉。
 - 日文青空文库的 `.zip` 里是 Shift_JIS 的 txt，带 `《ルビ》`、`［＃入力者注］` 注记——切分脚本会自动识别并剥掉（见 `--ruby`），直接喂原文件即可。
 - 讲解语言默认中文；若用户指定其他语言则遵循。
 - 范围：短文本全量处理。长文本默认取开头 30–60 句（或用户指定的章节），明确告知用户本次覆盖第 1–N 句，之后用户说"继续"即可用 `--start N+1` 增量生成下一批，再用 `build_reader.py --merge`（带 `--total`，取 sentences.json 的 `total`）合并进同一个阅读器。几百句以上要一次做完的，改走下面的「长文：多实例并发生成」。
@@ -21,9 +21,12 @@ description: 外语原著逐句精读，产出一个本地可直接打开的交�
 ```bash
 python3 scripts/split_sentences.py INPUT.txt [--start N] [--limit N] [--out sentences.json]
 # 可选：--lang ru|fr|ja|ko|en|zh…（强制语言） / --para auto|blank|line / --ruby auto|strip|keep
+#       --chapters auto|off（章回标题识别；off = 标题行当普通正文）
 ```
 
-输出 `{"lang","layout","total","para_mode","sentences":[{"id","text","para"}]}`。`id` 全局连续从 1 起；`para` 是自然段编号，阅读器据此还原排版；`layout` 是排版族（`latn`/`cyrl`/`cjk`/`jpn`/`kor`/`rtl`）。
+输出 `{"lang","layout","total","para_mode","chapters":[{"index","title","start"}],"sentences":[{"id","text","para","ch"}]}`。`id` 全局连续从 1 起；`para` 是自然段编号，阅读器据此还原排版；`layout` 是排版族（`latn`/`cyrl`/`cjk`/`jpn`/`kor`/`rtl`）；`ch` 是 1-based 章号（没识别到章回时为 0），`chapters` 里 `start` 是这一章第一句的 id。
+
+**章回标题自动识别**：独立成段、且形状像标题的段落会被当成章回标题，整段从正文里吃掉（不会被当成一句正文拿去讲解），阅读器据此建左侧导航与分卷边界。认得 `第X章/回/节/卷`、`序章/楔子/尾声`、`Chapter I`、`CHAPTER 12`、`Глава первая`、`ЧАСТЬ ВТОРАЯ`、`Chapitre premier`、`Capítulo 3`、`Kapitel VII`、`Erstes Kapitel`、`The First Book`、`Part Two`、`Prologue` 等；也认得**光杆编号独立成段**（加缪《局外人》式的 `I`–`VI`、`3.`、`XII.`）。部/卷标题紧挨章号时拼成复合标题（`Première Partie` + `I` → `Première Partie · I`），部名不会被章号吞掉。判断还看标点与虚词，`The chapter of accidents is long.`、`Another chapter opens with…` 这类正文不会被误吃。**判错了就在 `data.json` 里写一份 `chapters` 覆盖它**（见第 3 节），标题行是普通正文时也可以 `--chapters off` 整体关掉。
 
 脚本已处理的东西（不要自己手写切分逻辑）：
 
@@ -88,20 +91,29 @@ python3 scripts/check_data.py --data data.json --sentences sentences.json
 
 讲解生成是唯一耗时的环节。整本/整章一次做完、几百句以上时，切成 N 块并发跑，实例之间**只靠句子 id 对齐**，互不依赖、可乱序完成：
 
-1. 全文切一次，让脚本把每个实例的切片直接落盘（句数均衡、互不重叠，带上排计划时的 `--lang`/`--para`/`--ruby`；默认写进当前目录，`--plan-dir` 可改）：
+1. 全文切一次，让脚本把每个实例的切片直接落盘（句数均衡、互不重叠，带上排计划时的 `--lang`/`--para`/`--ruby`，以及**全书完整的章回清单**；默认写进当前目录，`--plan-dir` 可改）：
 
    ```bash
    python3 scripts/split_sentences.py INPUT.txt --plan 4
    ```
 
    会写出 `sentences-1.json … sentences-4.json`，并打印每个实例的任务行和最终合并命令。实例**不再重切全文**——id 由这次落盘固定，即使中途原文被改动，各实例的句子也不会错位。
-2. 每个实例基于自己的 `sentences-K.json` 以 10–15 句一批生成 `data-K.json`（批完即写盘），再 `check_data.py --data data-K.json --sentences sentences-K.json` 跑到 0 error。
+2. 每个实例基于自己的 `sentences-K.json` 以 10–15 句一批生成讲解，**批次文件里只写 `{"id","translation","words","grammar","culture","native"}`**，绝不重打 `text`/`para`——并发生成最常见的废稿就是实例把原文手打了一遍，丢 `à`/`ё`、丢引号、id 漂移。批完即写盘（如 `annots-K.b3.json`），然后用组装脚本把切片的 `text`/`para`/`ch` 原样注入：
+
+   ```bash
+   python3 scripts/assemble_annotations.py --sentences sentences-K.json \
+       --annots 'annots-K.b*.json' --out data-K.json --title '书名' --lang fr
+   ```
+
+   同一 id 后写入的批次覆盖先写入的，所以**中断续跑**就是「组装脚本报出未覆盖的句子 → 把缺的部分再写一个批次文件 → 重跑组装」，不必整块重来。组装完 `check_data.py --data data-K.json --sentences sentences-K.json` 必须跑到 0 error。
 3. 全部实例完成后照打印出来的合并命令一次构建（自带 `--total`，阅读器会显示「已覆盖 X/N 句」），再照第 6 步验收。
 
 并发纪律：
 
 - **风格一致性靠提示，不靠合并**：把第 3 节的质量要求原文（讲解语言、生词取舍标准、语法/文化写法）发给每个实例，并**把 `assets/sample_data.json` 的内容一并发给每个实例当风格锚**，否则合出来的讲解会风格漂移——合并器只能对齐句子，对不齐文风。
-- `id` / `text` / `para` 原样搬运的铁律不变；check_data 会逐句比对切片，谁改了原文谁那边直接报错。
+- `id` 原样搬运的铁律不变；`text`/`para`/`ch` 根本不该出现在实例的批次里——组装脚本从切片原样注入，check_data 再逐句比对切片，谁改了原文谁那边直接报错。
+- 切片里带的 `chapters` 由组装脚本带进 `data-K.json`（build 合并时按 `start` 折叠，重复的只留一份），不用谁去拼。
+- **批次文件天然可续跑**：实例以 id 对齐、批完即落盘，中途被停掉时已完成的批次全部有效；重新组装一次就能看出还缺哪些句子，只补缺的部分，不要整块重做。
 - `title` / `subtitle` / `lang` / `theme` 以 `--data`（第一个文件）为准；要统一控制就先写一个只含这几个字段的 meta.json 当 `--data`。
 - 切片重叠时后列出的文件覆盖先列出的；正常按 `--plan` 切不会重叠。
 
@@ -111,25 +123,31 @@ python3 scripts/check_data.py --data data.json --sentences sentences.json
 python3 scripts/build_reader.py --data data.json --out "<书名>-精读.html"
 # 可选：--theme paper|ink|sepia|mist|night|forest|rose|slate|solar|contrast
 #       --lang ru|fr|ja|ko|…  （覆盖 data.json 的 lang）
-#       --merge A.json B.json …（把早先批次按 id 合并进来，可多个，后者覆盖前者）
+#       --merge A.json B.json …（把早先批次按 id 合并进来，可多个，后者覆盖前者；
+#                               章回清单同样按 start 合并）
 #       --total N              （全书总句数，取 sentences.json 的 total；增量生成时传它，
 #                               阅读器会显示「已覆盖 X/N 句」并在结尾提示继续）
+#       --max-kb N             （单个 html 的体积上限，默认 500；超限按章回拆成多个分卷）
+#       --single               （强制只出一个 html，忽略上限）
+#       --minify               （保守压缩模板，体积再降一点）
 #       --strict                （缺译文直接报错）
 ```
 
 模板自动取自 `assets/reader_template.html`，无需手动改模板。
 
+**500 KB 上限与分卷**：默认 `--max-kb 500`。整本 html 超过上限时按**章回**贪心装卷——一卷在装得下的最后一章处收尾，**同一章绝不跨卷**（这就是「以章回为单位向下取整」）；输出 `<书名>-精读-1.html`、`-2.html`…，每个分卷都是完整可用的阅读器（左侧章回导航、讲解卡片、进度保存都在），卷首标题带 `（1/2）`，卷末给上一卷/下一卷链接。阅读进度与外观按书名哈希存，跨卷共用。只有两种例外会告警但仍照常产出：全书只有一个章回边界（无处可拆，整本一个文件），或单独一章本身就超限（这一章独占一卷）。
+
 ### 6. 验收（强烈建议）
 
 ```bash
-python3 scripts/verify_reader.py "<书名>-精读.html"
+python3 scripts/verify_reader.py "<书名>-精读-1.html" "<书名>-精读-2.html"   # 分卷时逐个传入
 ```
 
-无头浏览器里真点一遍：每句的卡片是否紧贴句下、←/→/Esc 键盘导航、主题与字号面板、进度写入 localStorage、增量生成时的覆盖提示。脚本纯标准库实现（内置一个极小的 WebSocket 客户端驱动 CDP），不需要装任何第三方包；机器上没有 Chrome/Chromium 时会自动跳过并提示，不会卡住流程；有任何 FAIL 就修完再交付。
+无头浏览器里真点一遍：每句的卡片是否紧贴句下、←/→/Esc 键盘导航、主题与字号面板、右上角是否只有一个按钮、左侧章回导航能否伸缩并跳到对应章、卷末上下卷链接、进度写入 localStorage、增量生成时的覆盖提示。脚本纯标准库实现（内置一个极小的 WebSocket 客户端驱动 CDP），不需要装任何第三方包；机器上没有 Chrome/Chromium 时会自动跳过并提示，不会卡住流程；有任何 FAIL 就修完再交付。
 
 ### 7. 交付
 
-把 HTML 文件路径作为链接交给用户，附一句话说明："浏览器打开，点任意句子看讲解，←/→ 逐句往下读，右上角 🎨 换主题。"不要长篇解释操作。
+把 HTML 文件路径作为链接交给用户，附一句话说明："浏览器打开，点任意句子看讲解，←/→ 逐句往下读，左上角 ☰ 目录跳章回，右上角 ⚙ 换主题字号。"分卷时把各个分卷的路径一并给出。不要长篇解释操作。
 
 ## data.json schema
 
@@ -139,11 +157,16 @@ python3 scripts/verify_reader.py "<书名>-精读.html"
   "subtitle": "Лев Толстой",
   "lang": "ru",
   "theme": "sepia",
+  "chapters": [
+    {"title": "ГЛАВА ПЕРВАЯ", "start": 1},
+    {"title": "ГЛАВА ВТОРАЯ", "start": 128}
+  ],
   "sentences": [
     {
       "id": 1,
       "text": "— Eh bien, mon prince.",
       "para": 2,
+      "ch": 1,
       "translation": "“怎么样啊，公爵。”",
       "words": [
         {"w": "Eh bien", "p": "e bjɛ̃", "m": "那么，好吧（法语语气词，用来接话、催促对方表态）",
@@ -163,16 +186,20 @@ python3 scripts/verify_reader.py "<书名>-精读.html"
 }
 ```
 
-- `title` 必填；`subtitle`、`lang`、`theme` 可省。`lang` 可写语言代码（`ru`/`fr`/`ja`/`ko`/`en`/`zh`）或排版族名（`cyrl`/`latn`/`jpn`/`kor`/`cjk`/`rtl`）；省略时阅读器按正文脚本自动判断。
+- `title` 必填；`subtitle`、`lang`、`theme`、`chapters` 可省。`lang` 可写语言代码（`ru`/`fr`/`ja`/`ko`/`en`/`zh`）或排版族名（`cyrl`/`latn`/`jpn`/`kor`/`cjk`/`rtl`）；省略时阅读器按正文脚本自动判断。
+- `chapters` **不用手写**——`split_sentences.py` 已经把识别结果放进 sentences.json，搬运时带上即可（每句的 `ch` 也一起搬）。只有自动识别判错时才自己写一份覆盖：`start` 是这一章第一句的 id，起点不在句子里的条目会被就近吸附到下一句。只写了每句的 `ch` 而没写 `chapters` 时，构建器也能据此切出章回边界，只是导航里没有标题。
 - 阅读器对字段很宽容：`words` 可以写成 `{"词": "释义"}` 字典，条目可以用 `word/ipa/meaning/note` 等异名，`grammar`/`culture`/`native` 可以写成纯字符串——但**按上面的规范写**，别故意用异名。
 - 上一例同时也是讲解质量的样板：语法扣这一句的写法，文化讲成有出处、有观点的故事。
 
 ## 阅读器行为（用户看到的样子）
 
 - **讲解就地展开**：卡片插在被点句子的正下方、随正文流排版。长段落里也贴着那一句，不会跑到段尾。同一时刻只有一张卡片。
+- **章回导航（左侧，可伸缩）**：左上角 `☰ 目录` 开合；目录列出全部章回，每条显示 `已读/总句数`，正在读的那一章高亮，点一条即跳到那一章第一句。宽屏时目录把正文推开（常驻侧栏），窄屏时浮在正文上并带遮罩；开合状态记在本机。目录宽度可在面板里调（窄/标准/宽）。没有识别到章回时这个按钮自动隐藏。
+- **卷内章回标题**：每章开头渲染一行标题（正文里也有，不只是导航里有）。
 - **已学过的句子**：字色压暗 + 句末一个小圆点，**没有下划线、没有高亮**；正在读的那句才有底色。
-- **键盘**：`←`/`→` 逐句进退（卡片跟着复用，页面不跳），`Esc` 收起；`Tab` 只落在当前句上（读长书不用逐句按 Tab），`Enter`/空格 打开讲解。
+- **键盘**：`←`/`→` 逐句进退（卡片跟着复用，页面不跳），`Esc` 收起（依次是外观面板 → 窄屏目录 → 讲解卡片）；`Tab` 只落在当前句上（读长书不用逐句按 Tab），`Enter`/空格 打开讲解。
 - **增量覆盖**：构建时带 `--total`（全书总句数）且大于已生成句数时，副标题显示「已覆盖 X/N 句 · 已读 n 句」，进度条按全书计，结尾提示读者说「继续」生成下一批。
-- **外观**：右上角 🎨 循环换主题，`Aa` 打开面板选主题/字号/行距/版心，可一键恢复默认。设置存 `localStorage`，与阅读进度分开存。
+- **分卷**：整本超过 `--max-kb`（默认 500）时按章回拆成多个 html，卷首标题带 `（1/2）`，卷末有「← 上一卷 / 下一卷 →」。
+- **外观**：右上角只有一个按钮（`⚙` + 当前主题名），点开的面板里选主题/字号/行距/版心/目录宽度/已读标记，可一键恢复默认。设置存 `localStorage`，与阅读进度分开存。
 - **主题**：纸、墨夜、旧书、青雾、深海、苔绿、藕粉、石板、日晒、高对比，共 10 种，深浅各有。
 - **排版按语言自动适配**：西里尔用 PT Serif 一系，拉丁用 Georgia 一系并开 hyphenation，日文明朝体 + `line-break:strict` + `palt`，韩文 `word-break:keep-all`，中文宋体一系；句间空格只加在非 CJK 语言上。

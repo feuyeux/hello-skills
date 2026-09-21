@@ -8,7 +8,7 @@ This repository is a small collection of independent skills. Each skill lives in
 - `translate-tts/`: Chinese-to-multilingual translation plus TTS (`scripts/translate_tts.py`, `scripts/run_translate_tts.sh`)
 - `ncm-to-wav/`: batch `.ncm` to `.wav` conversion (`scripts/ncm_to_wav.sh`)
 - `call-graph-image/`: Python call graph visualization (pure-prompt skill, no scripts)
-- `foreign-close-reading/`: sentence-by-sentence close reading of foreign-language originals into an interactive HTML reader (`scripts/split_sentences.py`, `scripts/check_data.py`, `scripts/build_reader.py`, `scripts/verify_reader.py`, `assets/reader_template.html`)
+- `foreign-close-reading/`: sentence-by-sentence close reading of foreign-language originals into an interactive HTML reader (`scripts/split_sentences.py`, `scripts/check_data.py`, `scripts/build_reader.py`, `scripts/verify_reader.py`, `assets/reader_template.html`, `tests/`)
 
 Top-level docs such as `README.md` and `get_latest.md` explain usage and version-source rules. Hidden folders like `.agents/` and `.claude/` are agent mirrors and are ignored by Git.
 
@@ -42,7 +42,8 @@ python3 -m py_compile foreign-close-reading/scripts/split_sentences.py
 python3 -m py_compile foreign-close-reading/scripts/build_reader.py
 python3 -m py_compile foreign-close-reading/scripts/check_data.py
 python3 -m py_compile foreign-close-reading/scripts/verify_reader.py
-# optional, needs Chrome + pip install websockets: renders the reader and asserts behavior
+python3 -m unittest discover -s foreign-close-reading/tests        # golden cases + chapter/volume packing
+# optional, needs Chrome: renders the reader and asserts behavior (one arg per volume)
 python3 foreign-close-reading/scripts/verify_reader.py "<book>-精读.html"
 pwsh -Command "Get-Content toolcheck/scripts/toolcheck.ps1 | Out-Null"  # PowerShell syntax check
 ```
@@ -75,6 +76,7 @@ When committing as an AI tool, both the Git author and the `Co-authored-by` trai
 | Codex | `Codex <noreply@openai.com>` | `Co-authored-by: Codex <noreply@openai.com>` |
 | Gemini | `Gemini <noreply@google.com>` | `Co-authored-by: Gemini <noreply@google.com>` |
 | OpenCode | `OpenCode <opencode@ai.local>` | `Co-authored-by: OpenCode <opencode@ai.local>` |
+| DeepSeek | `DeepSeek <noreply@deepseek.com>` | `Co-authored-by: DeepSeek <noreply@deepseek.com>` |
 
 Example:
 

@@ -97,22 +97,70 @@ body{
   background:transparent}
 #bar i{display:block; height:100%; width:0; background:var(--accent);
   transition:width .4s ease}
-#tools{position:fixed; top:12px; right:14px; z-index:12; display:flex; gap:8px}
+#tools{position:fixed; top:8px; right:10px; z-index:12; display:flex; gap:8px}
 .tbtn{
   font:500 12.5px/1 var(--font-ui); color:var(--muted); cursor:pointer;
   background:color-mix(in srgb, var(--card) 88%, transparent);
-  border:1px solid var(--line); border-radius:999px; padding:8px 12px;
+  border:1px solid var(--line); border-radius:999px; padding:7px 11px;
   backdrop-filter:blur(6px); box-shadow:var(--shadow);
   display:inline-flex; align-items:center; gap:5px; white-space:nowrap;
 }
 .tbtn:hover{color:var(--ink); border-color:var(--accent)}
-.tbtn.wide{padding:8px 10px}
+.tbtn.wide{padding:7px 11px}
+
+/* ── 左侧章回导航（可伸缩） ───────────────────────── */
+#t-nav{position:fixed; top:8px; left:10px; z-index:12}
+#toc{
+  position:fixed; top:0; left:0; bottom:0; width:var(--navw,248px); z-index:13;
+  background:color-mix(in srgb, var(--card) 96%, var(--paper));
+  border-right:1px solid var(--line); box-shadow:var(--shadow);
+  font-family:var(--font-ui); display:flex; flex-direction:column;
+  transform:translateX(-101%); transition:transform .2s ease;
+}
+html[data-nav="open"] #toc{transform:none}
+#toc[hidden]{display:none}
+#toc .toc-head{
+  display:flex; align-items:center; gap:6px;
+  padding:11px 10px 10px 14px; border-bottom:1px solid var(--line);
+  font-size:12px; letter-spacing:.14em; color:var(--accent); font-weight:600;
+}
+#toc .toc-head .tt{flex:1; min-width:0; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis}
+#toc .toc-head .n{color:var(--muted); font-weight:500; letter-spacing:.04em;
+  white-space:nowrap; font-size:11px}
+#toc ol{list-style:none; margin:0; padding:8px 8px 20px; overflow:auto;
+  flex:1; overscroll-behavior:contain}
+#toc li{margin:1px 0}
+#toc button{
+  display:flex; align-items:baseline; gap:8px; width:100%; text-align:left;
+  cursor:pointer; color:var(--ink); background:none; border:1px solid transparent;
+  border-radius:8px; padding:7px 9px; font:500 12.5px/1.4 var(--font-ui);
+}
+#toc button:hover{background:var(--paper2)}
+#toc button .ti{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap}
+#toc button .tn{color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums}
+#toc button.now{border-color:var(--accent); background:var(--accent-soft);
+  color:var(--accent); font-weight:700}
+#toc button.now .tn{color:var(--accent)}
+#toc button.done .tn{color:var(--accent)}
+#toc .toc-x{flex:0 0 auto; width:auto; cursor:pointer; color:var(--muted);
+  background:none; border:none; font:500 13px/1 var(--font-ui);
+  padding:4px 6px; border-radius:6px}
+#toc .toc-x:hover{color:var(--ink); background:var(--paper2)}
+#toc-scrim{position:fixed; inset:0; z-index:11; background:rgba(0,0,0,.28)}
+#toc-scrim[hidden]{display:none}
+/* 宽屏时导航是「推」正文，窄屏时让它浮在正文上 */
+@media (min-width:1000px){
+  html[data-nav="open"] body{padding-left:var(--navw,248px)}
+  #toc-scrim{display:none}
+}
 #panel{
-  position:fixed; top:52px; right:14px; z-index:12; width:280px; max-width:calc(100vw - 28px);
+  position:fixed; top:48px; right:10px; z-index:14; width:280px; max-width:calc(100vw - 20px);
   background:var(--card); border:1px solid var(--line); border-radius:14px;
   box-shadow:var(--shadow); padding:14px 16px 16px;
   font-family:var(--font-ui); font-size:13px; color:var(--ink);
-  max-height:calc(100vh - 72px); overflow:auto;
+  max-height:calc(100vh - 64px); overflow:auto;
 }
 #panel[hidden]{display:none}
 #panel h4{margin:0 0 10px; font-size:12px; letter-spacing:.14em;
@@ -143,28 +191,45 @@ body{
   background:var(--ink); clip-path:polygon(100% 0,100% 100%,0 100%)}
 #panel .note{color:var(--muted); font-size:11.5px; line-height:1.6; margin-top:10px}
 
-header{max-width:var(--measure,680px); margin:0 auto; padding:62px 24px 4px;
+header{max-width:var(--measure,680px); margin:0 auto; padding:44px 16px 2px;
   text-align:center}
-h1{font-size:25px; font-weight:600; margin:0; letter-spacing:.02em;
+h1{font-size:24px; font-weight:600; margin:0; letter-spacing:.02em;
   line-height:1.55; font-family:var(--serif-latin)}
 html[data-lang="cjk"] h1,html[data-lang="jpn"] h1,html[data-lang="kor"] h1{
   font-family:var(--serif-cjk)}
 html[data-lang="jpn"] h1{font-family:var(--serif-jp)}
 html[data-lang="kor"] h1{font-family:var(--serif-kr)}
-#meta{color:var(--muted); font-size:13px; margin-top:8px;
+#meta{color:var(--muted); font-size:12.5px; margin-top:6px;
   font-family:var(--font-ui); letter-spacing:.04em}
-#tip{color:var(--muted); font-size:13.5px; margin-top:16px;
+#tip{color:var(--muted); font-size:13px; margin-top:12px;
   font-family:var(--font-ui); transition:opacity 1.2s}
 #tip .k{border:1px solid var(--line); border-radius:5px; padding:1px 7px;
   font-size:12px; background:var(--card)}
 #tip.gone{opacity:0}
 
 /* ── 正文 ─────────────────────────────────────────── */
-main{max-width:var(--measure,680px); margin:0 auto; padding:30px 24px 150px}
-p.par{margin:0 0 1.3em}
+main{max-width:var(--measure,680px); margin:0 auto; padding:20px 16px 120px}
+p.par{margin:0 0 1.15em}
+/* 卷内章回标题：只出现在卷首与换章处，正文照旧连续排版 */
+h2.chap{
+  max-width:var(--measure,680px); margin:34px auto 4px; padding:0 16px;
+  font:600 15px/1.6 var(--font-ui); letter-spacing:.08em; color:var(--accent);
+  text-align:center;
+}
+h2.chap::before{content:''; display:block; width:40px; height:1px; margin:0 auto 14px;
+  background:var(--line)}
+h2.chap.first{margin-top:6px}
+h2.chap[hidden]{display:none}
 /* 增量生成时的结尾提示：书还没做完 */
-p.more{margin:44px 0 20px; padding-top:18px; border-top:1px solid var(--line);
+p.more{margin:40px 0 20px; padding-top:16px; border-top:1px solid var(--line);
   text-align:center; color:var(--muted); font-size:13px; font-family:var(--font-ui)}
+/* 分卷导航：上一卷 / 下一卷 */
+p.volnav{margin:30px 0 10px; padding-top:16px; border-top:1px solid var(--line);
+  display:flex; gap:10px; justify-content:center; flex-wrap:wrap;
+  font-family:var(--font-ui); font-size:13px}
+p.volnav a{color:var(--accent); text-decoration:none; border:1px solid var(--line);
+  border-radius:999px; padding:7px 14px; background:var(--card)}
+p.volnav a:hover{border-color:var(--accent)}
 
 /* 文本语言排版：字号 / 行高 / 字距 / 字体 / 断行 */
 html[data-lang="cjk"] main,html[data-lang="jpn"] main,html[data-lang="kor"] main{
@@ -197,9 +262,9 @@ html[data-seen="none"] .s.seen:not(.open){color:inherit}
 .card{
   background:var(--card); border:1px solid var(--line);
   border-left:4px solid var(--accent); border-radius:10px;
-  padding:16px 22px 12px; margin:0;
+  padding:14px 18px 10px; margin:0;
   box-shadow:var(--shadow);
-  animation:pop .18s ease-out; font-size:16px; line-height:1.85;
+  animation:pop .18s ease-out; font-size:16px; line-height:1.8;
   font-family:var(--serif-latin);
 }
 /* 卡片里写的是中文讲解，中文（SC）字形优先；被讲解的外文词条
@@ -237,20 +302,22 @@ h3{font:600 12px/1.4 var(--font-ui); color:var(--accent);
   overflow-wrap:break-word}
 .n b{color:var(--accent)}
 
-footer{max-width:var(--measure,680px); margin:0 auto; padding:0 24px 60px;
+footer{max-width:var(--measure,680px); margin:0 auto; padding:0 16px 48px;
   text-align:center; color:var(--muted); font-size:12px;
   font-family:var(--font-ui)}
 
 @media (max-width:480px){
   body{--size:17px}
-  header{padding-top:56px}
-  main{padding-left:18px; padding-right:18px}
+  header{padding-top:40px}
+  main{padding-left:13px; padding-right:13px}
   .w{flex-direction:column; gap:2px}
-  #tools{top:8px; right:8px}
-  .tbtn{padding:7px 10px; font-size:12px}
+  #tools{top:6px; right:6px}
+  #t-nav{top:6px; left:6px}
+  .tbtn{padding:6px 9px; font-size:12px}
+  h2.chap{padding:0 13px}
 }
 @media print{
-  #tools,#panel,#bar,footer,#tip{display:none}
+  #tools,#panel,#bar,footer,#tip,#toc,#toc-scrim,#t-nav{display:none}
   .s.seen:not(.open){color:inherit}
   .s.open{background:none; box-shadow:none}
 }
@@ -259,9 +326,21 @@ footer{max-width:var(--measure,680px); margin:0 auto; padding:0 24px 60px;
 <body>
 <div id="bar"><i></i></div>
 
+<div id="t-nav">
+  <button class="tbtn" id="t-toc" title="章回导航" aria-expanded="false"
+          aria-controls="toc">☰ <span>目录</span></button>
+</div>
+
+<div id="toc" hidden>
+  <div class="toc-head"><span class="tt">目录</span><span class="n" id="toc-n"></span>
+    <button class="toc-x" id="toc-x" title="收起目录">✕</button></div>
+  <ol id="toc-list"></ol>
+</div>
+<div id="toc-scrim" hidden></div>
+
 <div id="tools">
-  <button class="tbtn" id="t-theme" title="切换主题">🎨 <span id="t-theme-name">纸</span></button>
-  <button class="tbtn wide" id="t-more" title="字号与版心">Aa</button>
+  <button class="tbtn" id="t-more" title="外观设置" aria-expanded="false"
+          aria-controls="panel">⚙ <span id="t-theme-name">纸</span></button>
 </div>
 
 <div id="panel" hidden>
@@ -280,6 +359,10 @@ footer{max-width:var(--measure,680px); margin:0 auto; padding:0 24px 60px;
   <div class="grp">
     <h4>版心</h4>
     <div class="seg" id="seg-measure"></div>
+  </div>
+  <div class="grp">
+    <h4>目录宽度</h4>
+    <div class="seg" id="seg-navw"></div>
   </div>
   <div class="grp">
     <h4>已读标记</h4>
@@ -377,6 +460,7 @@ var SIZES = [['小', 17], ['标准', 19], ['大', 21], ['特大', 23]];
 var LEADS = [['紧', 1.75], ['标准', 2], ['松', 2.25], ['很松', 2.5]];
 var MEASURES = [['窄', 560], ['标准', 680], ['宽', 780], ['很宽', 900]];
 var SEEN_STYLES = [['压暗', 'dim'], ['不标记', 'none']];
+var NAVS = [['窄', 208], ['标准', 248], ['宽', 300]];
 
 var prefs = null;
 try { prefs = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch (e) {}
@@ -385,6 +469,7 @@ if (!THEMES.some(function (t) { return t.id === prefs.theme; })) prefs.theme = '
 if (typeof prefs.size !== 'number') prefs.size = 19;
 if (typeof prefs.lead !== 'number') prefs.lead = 2;
 if (typeof prefs.measure !== 'number') prefs.measure = 680;
+if (typeof prefs.navw !== 'number') prefs.navw = 248;
 if (SEEN_STYLES.every(function (x) { return x[1] !== prefs.seen; })) prefs.seen = 'dim';
 
 function applyPrefs() {
@@ -393,11 +478,12 @@ function applyPrefs() {
   root.style.setProperty('--size', prefs.size + 'px');
   root.style.setProperty('--lead', prefs.lead);
   root.style.setProperty('--measure', prefs.measure + 'px');
+  root.style.setProperty('--navw', prefs.navw + 'px');
   var t = THEMES.filter(function (x) { return x.id === prefs.theme; })[0] || THEMES[0];
   document.getElementById('t-theme-name').textContent = t.name;
   [['sw', 'theme', THEMES], ['seg-size', 'size', SIZES],
    ['seg-lead', 'lead', LEADS], ['seg-measure', 'measure', MEASURES],
-   ['seg-seen', 'seen', SEEN_STYLES]]
+   ['seg-seen', 'seen', SEEN_STYLES], ['seg-navw', 'navw', NAVS]]
     .forEach(function (row) {
       var box = document.getElementById(row[0]);
       if (!box) return;
@@ -425,9 +511,11 @@ function savePrefs() {
     sw.appendChild(b);
   });
   [['seg-size', SIZES, 'size'], ['seg-lead', LEADS, 'lead'],
-   ['seg-measure', MEASURES, 'measure'], ['seg-seen', SEEN_STYLES, 'seen']]
+   ['seg-measure', MEASURES, 'measure'], ['seg-seen', SEEN_STYLES, 'seen'],
+   ['seg-navw', NAVS, 'navw']]
     .forEach(function (row) {
     var box = document.getElementById(row[0]);
+    if (!box) return;
     row[1].forEach(function (pair) {
       var b = document.createElement('button');
       b.dataset.v = pair[1];
@@ -439,30 +527,55 @@ function savePrefs() {
   var rb = document.createElement('button');
   rb.textContent = '恢复默认';
   rb.onclick = function () {
-    prefs = { theme: 'paper', size: 19, lead: 2, measure: 680, seen: 'dim' };
+    prefs = { theme: 'paper', size: 19, lead: 2, measure: 680, seen: 'dim', navw: 248 };
     savePrefs();
   };
   document.getElementById('seg-reset').appendChild(rb);
-
-  var panel = document.getElementById('panel');
-  document.getElementById('t-more').onclick = function () { panel.hidden = !panel.hidden; };
-  document.getElementById('t-theme').onclick = function () {
-    var i = 0;
-    THEMES.forEach(function (t, k) { if (t.id === prefs.theme) i = k; });
-    prefs.theme = THEMES[(i + 1) % THEMES.length].id;
-    savePrefs();
-  };
-  document.addEventListener('click', function (e) {
-    if (panel.hidden) return;
-    if (panel.contains(e.target) || e.target.closest('#tools')) return;
-    panel.hidden = true;
-  });
 })();
+
+/* ── 目录 / 外观面板的开关 ─────────────────────────── */
+var panel = document.getElementById('panel');
+var tocBox = document.getElementById('toc');
+var scrim = document.getElementById('toc-scrim');
+var tocBtn = document.getElementById('t-toc');
+var moreBtn = document.getElementById('t-more');
+var NAV_KEY = 'fcr-nav';
+
+function setNav(on) {
+  if (on && !tocBox.dataset.ready) on = false;      // 没有章回就没有目录
+  root.setAttribute('data-nav', on ? 'open' : 'closed');
+  tocBox.hidden = !on;
+  scrim.hidden = !on || window.innerWidth >= 1000;
+  tocBtn.setAttribute('aria-expanded', String(!!on));
+  try { localStorage.setItem(NAV_KEY, on ? '1' : '0'); } catch (e) {}
+}
+tocBtn.onclick = function () {
+  panel.hidden = true;
+  setNav(root.getAttribute('data-nav') !== 'open');
+};
+if (document.getElementById('toc-x'))
+  document.getElementById('toc-x').onclick = function () { setNav(false); };
+scrim.onclick = function () { setNav(false); };
+moreBtn.onclick = function () {
+  panel.hidden = !panel.hidden;
+  moreBtn.setAttribute('aria-expanded', String(!panel.hidden));
+  /* 窄屏上目录是浮层，会和面板挤在一起；宽屏上它推着正文站左边，互不打扰 */
+  if (!panel.hidden && window.innerWidth < 1000) setNav(false);
+};
+window.addEventListener('resize', function () {
+  scrim.hidden = root.getAttribute('data-nav') !== 'open' || window.innerWidth >= 1000;
+});
+/* 面板打开时点空白处收起；点面板或工具条本身不算 */
+document.addEventListener('click', function (e) {
+  if (panel.hidden) return;
+  if (panel.contains(e.target) || e.target.closest('#tools')) return;
+  panel.hidden = true;
+});
 applyPrefs();
 
 /* ── 正文渲染 ─────────────────────────────────────── */
-document.querySelector('h1').textContent = DATA.title || '';
-document.title = DATA.title || '精读';
+document.querySelector('h1').textContent = DATA.vol_title || DATA.title || '';
+document.title = DATA.vol_title || DATA.title || '精读';
 
 var seen = {};
 try {
@@ -474,8 +587,38 @@ if (!seen || typeof seen !== 'object') seen = {};
 var SENTS = {};
 DATA.sentences.forEach(function (s) { SENTS[String(s.id)] = s; });
 
-var cur = null, holder = null;
+/* ── 章回：把带标题的章头插进正文，并列出左侧目录 ──── */
+var CHAPS = (DATA.chapters || []).filter(function (c) {
+  return c && c.start != null && SENTS[String(c.start)];
+});
+var chOf = {}, chapOfSent = {};
+CHAPS.forEach(function (c, i) {
+  c._i = i + 1;
+});
 DATA.sentences.forEach(function (s) {
+  var pick = 0;
+  for (var i = 0; i < CHAPS.length; i++)
+    if (Number(s.id) >= Number(CHAPS[i].start)) pick = i + 1;
+  chOf[String(s.id)] = pick;
+  if (!chapOfSent[pick]) chapOfSent[pick] = String(s.id);
+});
+
+var cur = null, holder = null, curChap = null;
+DATA.sentences.forEach(function (s) {
+  var ci = chOf[String(s.id)];
+  var head = null;
+  if (CHAPS.length && ci && ci !== curChap) {
+    var meta = CHAPS[ci - 1];
+    curChap = ci;
+    cur = null;                       // 换章一定另起一段，别和上一章挤在一起
+    if (meta.title) {
+      head = document.createElement('h2');
+      head.className = 'chap' + (ci === 1 ? ' first' : '');
+      head.id = 'chap-' + ci;
+      head.textContent = meta.title;
+      book.appendChild(head);
+    }
+  }
   if (!cur || String(s.para) !== String(cur.dataset.para)) {
     cur = document.createElement('p');
     cur.className = 'par';
@@ -498,6 +641,7 @@ DATA.sentences.forEach(function (s) {
   holder.hidden = true;
   cur.appendChild(holder);
   sp._holder = holder;
+  sp._chap = ci;
 });
 /* ── roving tabindex：整本书只有当前句在 Tab 序列里 ── */
 function rove(sp) {
@@ -506,6 +650,65 @@ function rove(sp) {
   if (sp) sp.tabIndex = 0;
 }
 rove(book.querySelector('.s'));
+
+/* ── 左侧章回导航 ─────────────────────────────────── */
+var tocList = document.getElementById('toc-list');
+var tocN = document.getElementById('toc-n');
+var tocButtons = [];
+(function buildToc() {
+  if (!CHAPS.length) { tocBox.dataset.ready = ''; setNav(false); return; }
+  tocBox.dataset.ready = '1';
+  tocN.textContent = CHAPS.length + ' 章';
+  CHAPS.forEach(function (c, i) {
+    var li = document.createElement('li');
+    var b = document.createElement('button');
+    var first = chapOfSent[c._i];
+    b.dataset.ch = String(c._i);
+    b.title = c.title || '(无题)';
+    b.innerHTML = '<span class="ti"></span><span class="tn"></span>';
+    b.querySelector('.ti').textContent = c.title || '(无题)';
+    b.onclick = function () {
+      var t = book.querySelector('.s[data-id="' + first + '"]');
+      if (!t) return;
+      if (window.innerWidth < 1000) setNav(false);
+      closeCard();
+      open(t);
+      t.scrollIntoView({ block: 'center' });
+    };
+    li.appendChild(b);
+    tocList.appendChild(li);
+    tocButtons.push(b);
+  });
+})();
+
+function tocMark() {
+  if (!tocButtons.length) return;
+  var at = openSpan ? Number(openSpan._chap) : 0;
+  var read = {};
+  DATA.sentences.forEach(function (s) {
+    var c = chOf[String(s.id)];
+    read[c] = read[c] || { n: 0, done: 0 };
+    read[c].n++;
+    if (seen[s.id]) read[c].done++;
+  });
+  tocButtons.forEach(function (b) {
+    var c = Number(b.dataset.ch);
+    var st = read[c] || { n: 0, done: 0 };
+    b.querySelector('.tn').textContent = st.done + '/' + st.n;
+    b.classList.toggle('now', c === at);
+    b.classList.toggle('done', st.n > 0 && st.done === st.n);
+  });
+}
+
+/* 首次进入恢复上次的目录开合；没存过就宽屏默认打开、窄屏默认收起 */
+(function restoreNav() {
+  var saved = null;
+  try { saved = localStorage.getItem(NAV_KEY); } catch (e) {}
+  var on = saved === null ? window.innerWidth >= 1000 : saved === '1';
+  setNav(on);
+  if (root.getAttribute('data-nav') === 'open')
+    tocMark();
+})();
 
 /* ── 增量覆盖：书还没生成完时，告诉读者还剩多少 ───── */
 var TOTAL = Number(DATA.total) || 0;
@@ -516,6 +719,19 @@ if (PARTIAL) {
   more.textContent = '本书共 ' + TOTAL + ' 句，这里生成了前 '
     + DATA.sentences.length + ' 句——对本 skill 说「继续」，即可生成下一批并合并进这个阅读器。';
   book.appendChild(more);
+}
+
+/* 分卷导航：同一本书拆成多个 html 时的上一卷/下一卷 */
+if (DATA.nav && (DATA.nav.prev || DATA.nav.next)) {
+  var nav = document.createElement('p');
+  nav.className = 'volnav';
+  if (DATA.nav.prev)
+    nav.innerHTML += '<a href="' + esc(DATA.nav.prev) + '">← 上一卷</a>';
+  nav.innerHTML += '<span>' + (DATA.nav.index || 1) + ' / '
+    + (DATA.nav.total || 1) + '</span>';
+  if (DATA.nav.next)
+    nav.innerHTML += '<a href="' + esc(DATA.nav.next) + '">下一卷 →</a>';
+  book.appendChild(nav);
 }
 
 /* ── 渲染工具（缺字段不会出现 undefined） ──────────── */
@@ -703,6 +919,7 @@ function closeCard() {
   }
   if (openSpan) openSpan.classList.remove('open');
   openSpan = openHolder = null;
+  tocMark();
 }
 /* 键盘逐句推进时用，避免同一张卡反复重绘 */
 function closeCardSoft() {
@@ -728,6 +945,7 @@ function open(span) {
   seen[s.id] = 1;
   save();
   tip.classList.add('gone');
+  tocMark();
   requestAnimationFrame(function () {
     var r = holder.getBoundingClientRect();
     var bottom = window.innerHeight - 8;
@@ -747,6 +965,7 @@ function save() {
   meta.textContent = PARTIAL
     ? head + '已覆盖 ' + DATA.sentences.length + '/' + TOTAL + ' 句 · 已读 ' + n + ' 句'
     : head + DATA.sentences.length + ' 句 · 已读 ' + n + ' 句';
+  tocMark();
 }
 
 /* 换行句子的行距间隙不参与 hit-test（点击会落到 <p> 上），
@@ -779,7 +998,13 @@ book.addEventListener('click', function (e) {
 
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') {
-    if (!document.getElementById('panel').hidden) { document.getElementById('panel').hidden = true; return; }
+    // Esc 依次收起：外观面板 → 浮在正文上的目录 → 讲解卡片。
+    // 宽屏的目录是「推」开正文的常驻侧栏，不吃 Esc，否则读完一句想收起
+    // 卡片时会被目录抢走第一次按键。
+    if (!panel.hidden) { panel.hidden = true; return; }
+    if (root.getAttribute('data-nav') === 'open' && window.innerWidth < 1000) {
+      setNav(false); return;
+    }
     closeCard(); return;
   }
   if (e.key === 'Enter' || e.key === ' ') {
@@ -817,6 +1042,7 @@ document.addEventListener('keydown', function (e) {
     if (x) x.onclick = function (ev) { ev.stopPropagation(); closeCard(); };
     seen[t.dataset.id] = 1;
     save();
+    tocMark();
     requestAnimationFrame(function () {
       var r = h.getBoundingClientRect();
       if (r.top < 70) window.scrollBy({ top: r.top - 90, behavior: 'smooth' });

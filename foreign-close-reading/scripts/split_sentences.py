@@ -4,14 +4,18 @@
 Usage:
   python3 split_sentences.py INPUT.txt [--start N] [--limit N]
                             [--out sentences.json] [--lang CODE] [--para auto|blank|line]
-                            [--plan N] [--plan-dir DIR]
+                            [--chapters auto|off] [--plan N] [--plan-dir DIR]
 
 Prints (or writes) JSON:
   {"lang":"ru","layout":"cyrl","total":M,"para_mode":"blank",
-   "sentences":[{"id":1,"text":"...","para":1}]}
+   "chapters":[{"index":1,"title":"Chapter I","start":1}],
+   "sentences":[{"id":1,"text":"...","para":1,"ch":1}]}
 
 - id is 1-based, continuous in reading order
 - para is the 1-based natural-paragraph number (the reader rebuilds layout from it)
+- ch is the 1-based chapter number (0 when no chapter was detected)
+- chapters[i].start is the id of the chapter's first sentence; a title-line
+  paragraph is consumed as a heading and never becomes a sentence
 - --start/--limit slice by sentence id (inclusive start, limit = max count)
 - lang/layout drive typography in the reader: latn / cyrl / cjk / jpn / kor / rtl
 
@@ -28,6 +32,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 
 # ── 缩写表 ──────────────────────────────────────────────────────────
 # 跨语言通用的缩写（多为计量、卷册、月份一类，不会与常用词撞车）。
@@ -615,7 +620,211 @@ def _indent_paragraphs(lines, lang):
     return [_join_para(p, lang) for p in paras]
 
 
-def plan_chunks(sentences, meta, a):
+# ── 章回识别 ────────────────────────────────────────────────────────
+# 章回边界只能从标题行的形状猜：整段很短、末尾不是句末标点、且以
+# 第…章 / Chapter / Глава / Chapitre / Kapitel 这类词起头。
+# 猜错的代价可控——data.json 里的 chapters 可以整套覆盖（见 SKILL.md）。
+CJK_CHAP = re.compile(
+    r'第\s*[0-9\uff10-\uff19\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b'
+    r'\u4e5d\u5341\u767e\u5343\u4e07\u96f6\u3007\u5169\u4e24]+\s*'
+    r'[\u7ae0\u56de\u7bc0\u8282\u5377\u5dfb\u90e8\u7bc7\u5e55\u6298\u8a71\u8bdd]')
+# 无编号、独自成段的固定标题
+CJK_CHAP_ALONE = {
+    '序', '序章', '序言', '序文', '自序', '楔子', '引子', '前言', '前書き',
+    '尾声', '尾聲', '終章', '终章', '後記', '后记', '跋', '题记', '題記',
+    '凡例', '目次', '目录', '目錄', '写在前面', '写在后面', '附记', '附录',
+}
+# 无编号的西文标题（首词完全匹配）
+CHAP_ALONE = {
+    'prologue', 'prolog', 'preface', 'foreword', 'epilogue', 'epilog',
+    'afterword', 'introduction', 'conclusion',
+    'предисловие', 'пролог', 'эпилог', 'послесловие', 'введение',
+    'заключение', 'prologo', 'epilogo', 'prefacio', 'prefazione',
+    'avant-propos', 'préface', 'vorwort', 'nachwort', 'einleitung',
+}
+# 前缀匹配的词干（chapter / chapitres / chapitolo / kapitel / capitulo…）
+CHAP_STEMS = (
+    'chapter', 'chapit', 'capitul', 'kapitel', 'prolog', 'epilog',
+    'preface', 'foreword', 'afterword', 'introduction',
+    'глава', 'часть', 'книга', 'раздел', 'отдел', 'предислов',
+    'послеслов', 'пролог', 'эпилог',
+)
+# 必须整词匹配的短词（part 会撞 particular，act 会撞 action）
+CHAP_EXACT = {
+    'part', 'partie', 'parte', 'teil', 'book', 'livre', 'libro', 'buch',
+    'tome', 'tom', 'volume', 'vol', 'act', 'scene', 'szene', 'canto',
+    'tale', 'day', 'letter', 'journal', 'note',
+}
+# 章号前的序数词（"Erstes Kapitel"、"Chapitre premier"）
+CHAP_ORDINAL = {
+    'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh',
+    'eighth', 'ninth', 'tenth', 'eleventh', 'twelfth', 'last', 'one', 'two',
+    'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+    'premier', 'premiere', 'première', 'deuxieme', 'deuxième',
+    'troisieme', 'troisième', 'quatrieme', 'quatrième',
+    'erste', 'erster', 'erstes', 'zweite', 'zweiter', 'zweites',
+    'dritte', 'dritter', 'drittes',
+    'первая', 'первый', 'первое', 'второй', 'вторая', 'второе',
+    'третья', 'третий', 'третье', 'последняя', 'последний',
+    'primera', 'primero', 'segunda', 'segundo', 'tercera', 'tercero',
+    'prima', 'primo', 'seconda', 'secondo',
+}
+# 标题词前的冠词：先剥掉再判断，否则 "The chapter of …" 这种普通句子
+# 会被「序数词 + 标题词」那条规则误判成章回标题
+CHAP_ARTICLES = {
+    'the', 'a', 'an', 'le', 'la', 'les', 'l', 'el', 'los', 'las', 'il',
+    'lo', 'gli', 'der', 'die', 'das', 'ein', 'eine', 'un', 'une', 'os', 'as',
+}
+# 冠词/虚词：紧随标题词之后出现，说明这里多半是正文而非标题
+CHAP_FUNC = {
+    'of', 'the', 'a', 'an', 'and', 'or', 'in', 'on', 'at', 'to', 'for',
+    'with', 'as', 'is', 'was', 'are', 'were', 'but', 'not', 'my', 'your',
+    'de', 'du', 'des', 'et', 'un', 'une', 'di', 'e', 'y', 'que',
+    'и', 'в', 'на', 'с', 'со', 'не', 'а', 'но', 'к', 'по', 'из',
+}
+ROMAN_NUM = re.compile(r'^[ivxlcdm]{1,7}\.?$', re.IGNORECASE)
+# 光杆编号独自成段时只认大写：正文里偶尔独行的小写 "i" / "y" 不该被吞
+BARE_NUMERAL = re.compile(r'^(?:[IVXLCDM]{1,7}|\d{1,3})$')
+
+
+def _strip_accents(s):
+    """capítulo → capitulo：重音不该妨碍词干匹配。"""
+    d = unicodedata.normalize('NFKD', str(s))
+    return ''.join(c for c in d if not unicodedata.combining(c)).lower()
+
+
+def _is_chap_word(w):
+    n = _strip_accents(w)
+    if n in CHAP_EXACT or n in CHAP_ALONE:
+        return True
+    return any(n.startswith(stem) for stem in CHAP_STEMS)
+
+
+def _is_chap_ordinal(w):
+    n = _strip_accents(w)
+    return n in CHAP_ORDINAL or n.isdigit() or bool(ROMAN_NUM.match(n))
+
+
+def _is_chap_article(w):
+    return _strip_accents(w) in CHAP_ARTICLES
+
+
+def _after_chap_word(rest):
+    """标题词之后允许跟什么。
+
+    允许「什么都不跟」「跟编号/序数」，以及「跟一两个实词」（Chapter One: The Fall、
+    The First Book of the Dead）。一旦尾巴里出现虚词或动词（was / of / and…），
+    说明这多半是一句正文而不是标题——宁可漏认一个标题，也不能把正文吞掉。"""
+    while rest and _is_chap_article(rest[0]):
+        rest = rest[1:]
+    if not rest:
+        return True
+    if _is_chap_ordinal(rest[0]) or _is_chap_word(rest[0]):
+        tail = rest[1:]
+    else:
+        return len(rest) <= 3 and _strip_accents(rest[0]) not in CHAP_FUNC
+    while tail and _is_chap_article(tail[0]):
+        tail = tail[1:]
+    return not any(_strip_accents(w) in CHAP_FUNC for w in tail)
+
+
+def looks_chapter_line(para):
+    """这一段的形状像不像一个章回标题？像就返回规整过的标题文本。"""
+    p = re.sub(r'\s+', ' ', str(para or '')).strip()
+    if not p or len(p) > 80:
+        return None
+    if p[-1] in '\u3002\uff01\uff1f!?\u2026,:;\u3001\uff0c\uff1a\uff1b':
+        return None                 # 标题不会以句末标点收尾
+    # 句子几乎都以句点收尾，标题极少；只有极短的（Chapter I.）才放行
+    if p[-1] in '.\uff0e' and len(p.split()) > 3:
+        return None
+    bare = p.rstrip('.\uff0e,,\u3001;\uff1b:\uff1a\u3000')
+    if bare in CJK_CHAP_ALONE:
+        return bare
+    if CJK_CHAP.search(p):
+        return p
+    words = [w.strip('.,;:\u3001\u3002\uff0c\uff1b\uff1a\u300c\u300d\u300e\u300f'
+                      '\u201c\u201d"\'\u2014\u2013-()\uff08\uff09[]') for w in p.split(' ')]
+    words = [w for w in words if w]
+    if not words or len(words) > 12:
+        return None
+    while words and _is_chap_article(words[0]):
+        words = words[1:]           # "The First Book" 的冠词先剥掉
+    if not words:
+        return None
+    # 光杆编号独自成段（"I" / "II." / "3"）：19–20 世纪小说最常见的分章方式，
+    # 加缪《局外人》整本都是 I–VI。整段只剩一个编号时几乎不可能是正文——
+    # 任何一句真话都不会短成这样；只认大写罗马数字免得误吞独行的小写词。
+    if len(words) == 1 and BARE_NUMERAL.match(words[0]):
+        return p
+    if _is_chap_word(words[0]):
+        return p if _after_chap_word(words[1:]) else None
+    # "Erstes Kapitel" / "The First Book"：标题词排在序数词后面。
+    # 首词必须真是序数词，否则 "Another chapter opens …" 这种普通句子
+    # 会因为第二个词是 chapter 而被误判成标题；标题词后面同样要干净，
+    # 免得 "The second part of the story is better." 混进来。
+    if len(words) > 1 and _is_chap_ordinal(words[0]) and _is_chap_word(words[1]) \
+            and _after_chap_word(words[2:]):
+        return p
+    if _strip_accents(bare) in CHAP_ALONE:
+        return p
+    return None
+
+
+def detect_chapters(paras):
+    """自然段列表 → {1-based 段号: 标题}。标题段本身不再作为正文句子。"""
+    marks = {}
+    for pid, para in enumerate(paras):
+        title = looks_chapter_line(para)
+        if title:
+            marks[pid + 1] = title
+    return marks
+
+
+def build_chapters(sentences, marks):
+    """给每句打上 1-based 章号 ch，并返回 [{index, title, start}]。
+
+    一句标题都没识别出来时返回空表，s.ch 一律为 0——阅读器就退化成
+    没有导航的形态（data.json 里仍可手工给一份 chapters 覆盖）。"""
+    if not marks or not sentences:
+        for s in sentences:
+            s['ch'] = 0
+        return []
+    ordered = sorted(marks)
+    raw = []
+    # 第一个标题之前还有正文 → 卷首无题章（扉页、题献、无标题的引子）
+    if sentences[0]['para'] < ordered[0]:
+        raw.append({'title': '', 'start': sentences[0]['id']})
+    mi = 0
+    for s in sentences:
+        # 标题段本身不含句子，所以按「第一句 para 越过标题 para」来开章
+        while mi < len(ordered) and ordered[mi] <= s['para']:
+            raw.append({'title': marks[ordered[mi]], 'start': s['id']})
+            mi += 1
+    chapters = []
+    for c in raw:
+        if chapters and chapters[-1]['start'] == c['start']:
+            # 标题紧挨标题（"Première Partie" + "I"）：空章由后一个接手；
+            # 两个都有名字时拼在一起，别让部/卷标题被章号吞掉
+            prev, new = chapters[-1]['title'], c['title']
+            if new and prev and new != prev:
+                c['title'] = prev + ' · ' + new
+            elif prev and not new:
+                c['title'] = prev
+            chapters[-1] = c
+        else:
+            chapters.append(c)
+    for i, c in enumerate(chapters, 1):
+        c['index'] = i
+    k = 0
+    for s in sentences:
+        while k + 1 < len(chapters) and chapters[k + 1]['start'] <= s['id']:
+            k += 1
+        s['ch'] = chapters[k]['index']
+    return chapters
+
+
+def plan_chunks(sentences, chapters, meta, a):
     """把全文切成 N 块均衡切片，直接写入 sentences-K.json，并打印并发计划。
 
     切片由这里一次落盘、id 从此固定：并发实例只读自己的切片文件，
@@ -629,7 +838,8 @@ def plan_chunks(sentences, meta, a):
         sel = [s for s in sentences if start <= s['id'] < start + limit]
         name = 'sentences-%d.json' % (i + 1)
         with open(os.path.join(a.plan_dir, name), 'w', encoding='utf-8') as f:
-            json.dump(dict(meta, sentences=sel), f, ensure_ascii=False, indent=1)
+            json.dump(dict(meta, chapters=chapters, sentences=sel), f,
+                      ensure_ascii=False, indent=1)
         files.append(name)
         ranges.append('%s: id %d-%d' % (name, start, start + limit - 1))
         start += limit
@@ -706,6 +916,9 @@ def main():
                     help='paragraph detection: blank line / every line / auto')
     ap.add_argument('--ruby', choices=('auto', 'strip', 'keep'), default='auto',
                     help='strip Aozora ruby/editor notes (auto = strip when detected)')
+    ap.add_argument('--chapters', choices=('auto', 'off'), default='auto',
+                    help='chapter-title detection: auto (shape-based) or off '
+                         '(treat title-looking lines as ordinary text)')
     ap.add_argument('--plan', type=int, default=0, metavar='N',
                     help='write N balanced slice files (sentences-1.json … sentences-N.json) '
                          'and print the concurrent plan, then exit')
@@ -721,19 +934,27 @@ def main():
         text = strip_aozora(text, lang)
     split = splitter_for(lang)
     paras, para_mode = paragraph_texts(text, lang, a.para)
+    # --chapters off：标题行当普通正文，不切章；默认 auto 只认形状像标题的段落
+    marks = {} if a.chapters == 'off' else detect_chapters(paras)
 
     sentences = []
     for pid, para in enumerate(paras):
+        pnum = pid + 1
+        # 标题段整段吃掉，不要让它变成一句「正文」再被讲解一遍
+        if pnum in marks:
+            continue
         for s in split(para):
             s = re.sub(r'\s+', ' ', s).strip()
             # 只剩标点/引号的碎片并回上一句，别让它单独成句
             if s and not re.search(r'[^\W_]', s):
-                if sentences and sentences[-1]['para'] == pid + 1:
+                if sentences and sentences[-1]['para'] == pnum:
                     sentences[-1]['text'] += ' ' + s
                 continue
             if s:
                 sentences.append({'id': len(sentences) + 1, 'text': s,
-                                  'para': pid + 1})
+                                  'para': pnum})
+
+    chapters = build_chapters(sentences, marks)
 
     if a.plan and a.plan > 0:
         meta = {'lang': lang, 'layout': layout_of(lang), 'total': len(sentences),
@@ -741,15 +962,30 @@ def main():
         if ruby:
             meta['ruby'] = 'stripped'
         os.makedirs(a.plan_dir, exist_ok=True)
-        plan_chunks(sentences, meta, a)
+        plan_chunks(sentences, chapters, meta, a)
         return
 
     selected = [s for s in sentences if s['id'] >= a.start]
     if a.limit:
         selected = selected[:a.limit]
+    # 切片后的 chapters：只留起点落在选区里的章，首章起点对齐到选区第一句
+    sel_ids = [s['id'] for s in selected]
+    sel_ch = []
+    if chapters and sel_ids:
+        lo, hi = sel_ids[0], sel_ids[-1]
+        for c in chapters:
+            if lo <= c['start'] <= hi:
+                sel_ch.append(dict(c))
+        if not sel_ch or sel_ch[0]['start'] != lo:
+            # --start/--limit 从章中间切进来：给一段无标题的开头
+            sel_ch.insert(0, {'title': '', 'start': lo})
+        for i, c in enumerate(sel_ch, 1):
+            c['index'] = i
 
     out = {'lang': lang, 'layout': layout_of(lang), 'total': len(sentences),
            'para_mode': para_mode, 'sentences': selected}
+    if sel_ch:
+        out['chapters'] = sel_ch
     if ruby:
         out['ruby'] = 'stripped'
     js = json.dumps(out, ensure_ascii=False, indent=1)
@@ -757,9 +993,9 @@ def main():
         with open(a.out, 'w', encoding='utf-8') as f:
             f.write(js)
         kept = '{}-{}'.format(selected[0]['id'], selected[-1]['id']) if selected else 'none'
-        print('lang={} layout={} para={}{} total={} kept sentences {} -> {}'.format(
+        print('lang={} layout={} para={}{} total={} chapters={} kept sentences {} -> {}'.format(
             lang, out['layout'], para_mode, ' ruby=stripped' if ruby else '',
-            len(sentences), kept, a.out))
+            len(sentences), len(sel_ch), kept, a.out))
     else:
         print(js)
 

@@ -4,7 +4,8 @@
 Usage:
   python3 build_reader.py --data data.json --out reader.html
                         [--template PATH] [--theme NAME] [--lang CODE]
-                        [--merge OLD.json] [--strict]
+                        [--merge OLD.json] [--max-kb N] [--single] [--minify]
+                        [--strict]
 
 data.json schema (see SKILL.md for the annotated version):
 {
@@ -12,9 +13,10 @@ data.json schema (see SKILL.md for the annotated version):
   "subtitle": "Лев Толстой",             # optional
   "lang": "ru",                          # optional; see LANG_ALIASES below
   "theme": "sepia",                      # optional default theme
+  "chapters": [{"title": "Chapter I", "start": 1}],   # optional; see below
   "sentences": [
     {
-      "id": 1, "text": "...", "para": 1, "translation": "...",
+      "id": 1, "text": "...", "para": 1, "ch": 1, "translation": "...",
       "words":   [{"w": "word", "p": "phonetic", "m": "meaning", "n": "note"}],
       "grammar": [{"t": "point", "d": "explanation"}],
       "culture": [{"t": "topic", "d": "content"}]
@@ -24,9 +26,16 @@ data.json schema (see SKILL.md for the annotated version):
 Only id/text/para are structurally required; the reader degrades gracefully
 when translation or any annotation list is missing.
 
+chapters drives the left-hand outline AND volume packing. Each entry is
+{"title", "start"}; "start" is the id of the chapter's first sentence. Omit it
+and the builder falls back to the per-sentence "ch" numbers from
+split_sentences.py (titles then come out empty). Whole chapters are never cut
+in half: an html larger than --max-kb is emitted as <name>-1.html, -2.html …
+
 --merge OLD.json [OLD.json …] folds earlier batches into --data by sentence id
 (new wins), so "继续读下一批" can keep appending to one data.json; several
 concurrent chunk files can be merged at once (later files override earlier ones).
+Chapter lists are merged the same way, keyed by "start".
 """
 
 import argparse
@@ -113,6 +122,182 @@ def merge_sentences(old, new):
     return [by_id[k] for k in order]
 
 
+def merge_chapters(old, new):
+    """Fold two chapter lists into one, keyed by start id, ordered by start."""
+    by_start = {}
+    order = []
+    for c in list(old) + list(new):
+        if not isinstance(c, dict):
+            continue
+        key = str(c.get('start'))
+        if key not in by_start:
+            order.append(key)
+        by_start[key] = c
+    out = [by_start[k] for k in order]
+    try:
+        out.sort(key=lambda c: float(c['start']))
+    except (TypeError, ValueError, KeyError):
+        pass
+    for i, c in enumerate(out, 1):
+        c['index'] = i
+    return out
+
+
+def normalize_chapters(chapters, sentences):
+    """Keep chapters whose start id really exists; fill in the leading gap."""
+    ids = [s['id'] for s in sentences]
+    if not ids:
+        return []
+    lo, hi = ids[0], ids[-1]
+    known = set(str(i) for i in ids)
+    kept = []
+    for c in chapters or []:
+        if not isinstance(c, dict):
+            continue
+        start = c.get('start')
+        if start is None:
+            continue
+        if str(start) not in known:
+            # 起点不在本书里（多半是合并了别的分卷）——就近吸附到下一句
+            try:
+                nxt = [i for i in ids if float(i) >= float(start)]
+            except (TypeError, ValueError):
+                nxt = []
+            if not nxt:
+                continue
+            start = nxt[0]
+        if not (float(lo) <= float(start) <= float(hi)):
+            continue
+        kept.append({'title': str(c.get('title') or ''), 'start': start})
+    kept.sort(key=lambda c: float(c['start']))
+    if not kept or str(kept[0]['start']) != str(lo):
+        kept.insert(0, {'title': '', 'start': lo})
+    dedup = []
+    for c in kept:
+        if dedup and str(dedup[-1]['start']) == str(c['start']):
+            dedup[-1] = c
+        else:
+            dedup.append(c)
+    for i, c in enumerate(dedup, 1):
+        c['index'] = i
+    return dedup
+
+
+def chapter_of(ids, chapters):
+    """sentence id -> chapter index (1-based), from chapter start boundaries."""
+    starts = [float(c['start']) for c in chapters]
+    out = {}
+    for sid in ids:
+        v = float(sid)
+        ch = 1
+        for i, st in enumerate(starts):
+            if v >= st:
+                ch = i + 1
+            else:
+                break
+        out[str(sid)] = ch
+    return out
+
+
+def compact(obj):
+    """Same serialisation the template embeds, so size estimates are honest."""
+    return json.dumps(obj, ensure_ascii=False, separators=(',', ':')).replace('</', '<\\/')
+
+
+def split_volumes(data, chapters, template, title, limit):
+    """Greedy: whole chapters per volume, each volume ≤ limit bytes.
+
+    「以章回为单位向下取整」= 一卷在装得下的最后一章处收尾，绝不把一章劈开。
+    单独一章就超过上限时无处可退，只能让它独占一卷并告警（见 main）。"""
+    sentences = data['sentences']
+    if not chapters or limit <= 0:
+        return [{'chapters': list(chapters or []), 'sentences': sentences}]
+    ids = [s['id'] for s in sentences]
+    ch_of = chapter_of(ids, chapters)
+    groups = [(c, []) for c in chapters]
+    pos = dict((c['index'], i) for i, (c, _) in enumerate(groups))
+    for s in sentences:
+        groups[pos[ch_of[str(s['id'])]]][1].append(s)
+
+    def render(chs, sents):
+        d = dict(data)
+        d['sentences'] = sents
+        if chs:
+            d['chapters'] = chs
+        else:
+            d.pop('chapters', None)
+        return size_of(d, template, title)
+
+    volumes, cur_chs, cur_sents = [], [], []
+    for c, sents in groups:
+        if cur_chs and render(cur_chs + [c], cur_sents + sents) > limit:
+            volumes.append({'chapters': cur_chs, 'sentences': cur_sents})
+            cur_chs, cur_sents = [], []
+        cur_chs.append(c)
+        cur_sents.extend(sents)
+    if cur_chs or cur_sents:
+        volumes.append({'chapters': cur_chs, 'sentences': cur_sents})
+
+    # 贪心装进来的卷若仍是超限（估算与最终渲染有出入），把尾章退给下一卷再审，
+    # 直到每卷都真的装得下，或退化成一章一卷（那时已无处可退）
+    i = 0
+    while i < len(volumes):
+        v = volumes[i]
+        if len(v['chapters']) > 1 and render(v['chapters'], v['sentences']) > limit:
+            moved_ch = v['chapters'].pop()
+            idx = moved_ch['index']
+            moved = [s for s in v['sentences'] if ch_of[str(s['id'])] == idx]
+            v['sentences'] = [s for s in v['sentences']
+                              if ch_of[str(s['id'])] != idx]
+            volumes.insert(i + 1, {'chapters': [moved_ch], 'sentences': moved})
+        else:
+            i += 1
+    return volumes
+
+
+def chapters_from_ch(sentences):
+    """没有 chapters 只有每句的 ch 时，退化成按章号切边界（标题留空）。"""
+    out = []
+    for s in sentences:
+        ch = s.get('ch')
+        if ch in (None, '', 0, '0'):
+            continue
+        if not out or str(out[-1].get('_ch')) != str(ch):
+            out.append({'title': '', 'start': s['id'], '_ch': ch})
+    for c in out:
+        c.pop('_ch', None)
+    return out
+
+
+def render_html(tpl, data, title):
+    t = (str(title).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;'))
+    return tpl.replace('__TITLE__', t).replace('__DATA__', compact(data))
+
+
+def size_of(data, tpl, title):
+    return len(render_html(tpl, data, title).encode('utf-8'))
+
+
+BLOCK_COMMENT = re.compile(r'/\*.*?\*/', re.S)
+
+
+def minify(html):
+    """保守压缩：只做绝不可能改变语义的三件事——去掉块注释、行首缩进和空行。
+
+    不做 JS/CSS 的激进压缩（`//` 注释一删就会毁掉 URL 和正则），
+    省下的这点体积不值得拿阅读器的正确性去赌。"""
+    html = BLOCK_COMMENT.sub('', html)
+    lines = [ln.strip() for ln in html.split('\n')]
+    return '\n'.join(ln for ln in lines if ln)
+
+
+def vol_name(out, i, n):
+    if n <= 1:
+        return out
+    stem, ext = os.path.splitext(out)
+    return '%s-%d%s' % (stem, i, ext)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--data', required=True)
@@ -127,6 +312,13 @@ def main():
     ap.add_argument('--total', type=int, metavar='N',
                     help='全书总句数（split 输出的 total）。增量生成时传它：'
                          '阅读器会显示「已覆盖 X/N 句」并在结尾提示继续')
+    ap.add_argument('--max-kb', type=int, default=500, metavar='N',
+                    help='单个阅读器 html 的体积上限，默认 500（KB）。超出时按章回'
+                         '向下取整拆成多个分卷，同一章绝不跨卷；0 = 不限制、只出一个文件')
+    ap.add_argument('--single', action='store_true',
+                    help='强制只输出一个 html（忽略 --max-kb，超限只警告）')
+    ap.add_argument('--minify', action='store_true',
+                    help='保守压缩模板（去块注释/缩进/空行），体积再降一点')
     ap.add_argument('--strict', action='store_true',
                     help='fail when a sentence has no translation or no annotations')
     a = ap.parse_args()
@@ -134,10 +326,12 @@ def main():
     data = load_json(a.data)
     if not isinstance(data, dict):
         fail('data.json must be a JSON object')
+    olds = []
     if a.merge:
-        olds = []
         for path in a.merge:
             old = load_json(path)
+            if not isinstance(old, dict):
+                fail('%s must be a JSON object' % path)
             if (old.get('title') and data.get('title')
                     and str(data['title']) != str(old['title'])):
                 # 阅读进度按 title 存在浏览器 localStorage 里，标题一变已读进度就不带了
@@ -159,6 +353,14 @@ def main():
                     if old.get(k):
                         data[k] = old[k]
                         break
+        # 章回清单同样折叠：--data 里写了的覆盖一切，没写就用切片带过来的
+        if not data.get('chapters'):
+            chs = []
+            for old in olds:
+                if isinstance(old.get('chapters'), list):
+                    chs = merge_chapters(chs, old['chapters'])
+            if chs:
+                data['chapters'] = chs
 
     if not isinstance(data.get('sentences'), list) or not data['sentences']:
         fail('data.json needs a non-empty "sentences" list')
@@ -205,8 +407,19 @@ def main():
     if a.total:
         data['total'] = a.total
 
+    chapters = data.get('chapters')
+    if not isinstance(chapters, list) or not chapters:
+        chapters = chapters_from_ch(data['sentences'])
+    chapters = normalize_chapters(chapters, data['sentences'])
+    if chapters and any(c.get('title') for c in chapters):
+        data['chapters'] = chapters
+    else:
+        data.pop('chapters', None)
+
     with open(a.template, encoding='utf-8') as f:
         tpl = f.read()
+    if a.minify:
+        tpl = minify(tpl)
     # 主题清单有三份（这里、模板 CSS、模板 JS），加主题要三处同步——对不齐就拒绝构建
     css_ids = set(re.findall(r'\[data-theme="([a-z0-9]+)"\]', tpl))
     js_ids = set(re.findall(r"\{\s*id:\s*'([a-z0-9]+)'", tpl))
@@ -218,21 +431,77 @@ def main():
         if token not in tpl:
             fail('template is missing the %s placeholder' % token)
 
-    js = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
-    # keep the inline JSON from prematurely closing its <script> tag
-    js = js.replace('</', '<\\/')
-
-    title = str(data['title']).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-    html = tpl.replace('__TITLE__', title).replace('__DATA__', js)
+    limit = 0 if a.single else max(0, a.max_kb) * 1024
+    volumes = split_volumes(data, chapters, tpl, data['title'], limit)
+    if limit:
+        overs = [(i + 1, v, size_of(_vol_data(data, v), tpl, data['title']))
+                 for i, v in enumerate(volumes)]
+        for i, v, sz in overs:
+            if sz <= limit:
+                continue
+            if len(chapters) <= 1:
+                print('warning: %d KB > %d KB 上限，但全书只有 %d 个章回边界，'
+                      '无法在章与章之间拆开——整本写进一个文件'
+                      % (sz // 1024, a.max_kb, len(chapters)))
+            else:
+                first = v['chapters'][0] if v['chapters'] else {'index': '?', 'title': ''}
+                print('warning: 第 %d 卷（第 %s 章「%s」）单独成卷仍 %d KB > %d KB 上限'
+                      % (i, first['index'], first['title'] or '(无题)',
+                         sz // 1024, a.max_kb))
 
     out = os.path.abspath(a.out)
     os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
-    with open(out, 'w', encoding='utf-8') as f:
-        f.write(html)
-    print('reader written: %s (%d sentences, lang=%s%s%s)' % (
-        out, len(data['sentences']), data.get('lang') or 'auto',
+    n_vol = len(volumes)
+    written = []
+    for i, v in enumerate(volumes, 1):
+        vdata = _vol_data(data, v)
+        if n_vol > 1:
+            vdata['nav'] = {
+                'index': i, 'total': n_vol,
+                'prev': os.path.basename(vol_name(out, i - 1, n_vol)) if i > 1 else '',
+                'next': os.path.basename(vol_name(out, i + 1, n_vol)) if i < n_vol else '',
+            }
+            vtitle = '%s（%d/%d）' % (data['title'], i, n_vol)
+            vdata['vol_title'] = vtitle
+        else:
+            vtitle = data['title']
+        html = render_html(tpl, vdata, vtitle)
+        path = vol_name(out, i, n_vol)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(html)
+        written.append((path, len(html.encode('utf-8')), len(v['sentences'])))
+
+    for path, size, n in written:
+        print('reader written: %s (%d sentences, %.0f KB)' % (path, n, size / 1024.0))
+    print('total %d sentences, lang=%s%s%s, %d 卷' % (
+        len(data['sentences']), data.get('lang') or 'auto',
         ', theme=' + data['theme'] if data.get('theme') else '',
-        ', total=%d' % data['total'] if data.get('total') else ''))
+        ', total=%d' % data['total'] if data.get('total') else '',
+        n_vol))
+    if chapters:
+        head = ' · '.join('%d. %s' % (c['index'], c['title'] or '(无题)')
+                          for c in chapters[:6])
+        print('chapters (%d): %s%s' % (len(chapters), head,
+                                       ' …' if len(chapters) > 6 else ''))
+
+
+def _vol_data(data, vol):
+    """一卷的 data：只带这一卷的句子与章回（章回清单按起点裁开）。"""
+    d = dict(data)
+    d['sentences'] = vol['sentences']
+    chs = [c for c in vol['chapters']]
+    for i, c in enumerate(chs, 1):
+        c = dict(c)
+        c['index'] = i
+        chs[i - 1] = c
+    if chs and vol['sentences']:
+        chs[0]['start'] = vol['sentences'][0]['id']
+    if chs:
+        d['chapters'] = chs
+    else:
+        d.pop('chapters', None)
+    return d
+
 
 
 if __name__ == '__main__':

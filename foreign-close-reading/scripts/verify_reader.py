@@ -189,13 +189,19 @@ class Browser:
     def __init__(self, binary, width=1100, height=900):
         self.port = free_port()
         self.profile = tempfile.mkdtemp(prefix='fcr-verify-')
-        self.proc = subprocess.Popen(
-            [binary, '--headless=new', '--no-first-run', '--no-default-browser-check',
-             '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1',
-             '--remote-debugging-port=%d' % self.port,
-             '--user-data-dir=' + self.profile,
-             '--window-size=%d,%d' % (width, height), 'about:blank'],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        args = [binary, '--headless=new', '--no-first-run', '--no-default-browser-check',
+                '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1',
+                # 容器/沙箱里 /dev/shm 往往很小或不可用，不关掉共享内存起不来
+                '--disable-dev-shm-usage',
+                # 桌面沙箱常不允许 Chrome 再套一层自己的 setuid 沙箱；
+                # 关掉它只影响这个一次性的验收实例（页面全部来自本地 file://）
+                '--no-sandbox',
+                '--remote-debugging-port=%d' % self.port,
+                '--user-data-dir=' + self.profile,
+                '--window-size=%d,%d' % (width, height), 'about:blank']
+        self.log = tempfile.NamedTemporaryFile(prefix='fcr-chrome-', suffix='.log',
+                                               delete=False)
+        self.proc = subprocess.Popen(args, stdout=self.log, stderr=self.log)
         self.ws = None
         self._id = 0
         for _ in range(120):
@@ -207,9 +213,18 @@ class Browser:
                     self.ws = connect_ws(pages[0]['webSocketDebuggerUrl'])
                     break
             except Exception:
+                # 浏览器可能已经退出（缺依赖、沙箱拒绝）——别干等到超时
+                if self.proc.poll() is not None:
+                    break
                 time.sleep(0.25)
         if self.ws is None:
-            raise RuntimeError('could not attach to the browser')
+            why = ''
+            try:
+                with open(self.log.name, errors='replace') as f:
+                    why = ' :: ' + f.read()[-600:].strip().replace('\n', ' | ')
+            except OSError:
+                pass
+            raise RuntimeError('could not attach to the browser' + why)
         self.cmd('Page.enable')
         self.cmd('Runtime.enable')
 
@@ -250,11 +265,21 @@ class Browser:
         except Exception:
             self.proc.kill()
         shutil.rmtree(self.profile, ignore_errors=True)
+        try:
+            self.log.close()
+            os.unlink(self.log.name)
+        except OSError:
+            pass
 
 
 def audit(path, b, shots_dir=None):
     print('\n== ' + os.path.basename(path))
-    b.goto('file://' + os.path.abspath(path))
+    url = 'file://' + os.path.abspath(path)
+    b.goto(url)
+    # 目录开合是记在 localStorage 里的；验收下一个阅读器前清掉，
+    # 否则上一本留下的收合状态会被误当成「这一本默认收起」
+    b.js("try { localStorage.removeItem('fcr-nav'); } catch (e) {}")
+    b.goto(url)
     lang = b.js("document.documentElement.getAttribute('data-lang')")
     n_sent = b.js("document.querySelectorAll('.s').length")
     if not n_sent:
@@ -397,6 +422,68 @@ def audit(path, b, shots_dir=None):
         else:
             check('[%s] full coverage shows no continue note' % lang,
                   not cov['note'], cov)
+
+    # 右上角只留一个按钮：主题/字号/版心都在它展开的面板里
+    tools = b.js("document.querySelectorAll('#tools .tbtn').length")
+    check('[%s] the top-right toolbar is a single button' % lang, tools == 1, tools)
+    opened = b.js("""(() => {
+      const p = document.getElementById('panel');
+      const btn = document.getElementById('t-more');
+      btn.click();
+      const open = !p.hidden, themes = !!p.querySelector('#sw button');
+      btn.click();
+      return {open, themes, closed: p.hidden};
+    })()""")
+    check('[%s] that button opens the appearance panel' % lang,
+          opened['open'] and opened['themes'] and opened['closed'], opened)
+
+    # 章回导航：左侧目录必须能伸缩，且点一条能跳到那一章的第一句
+    toc = b.js("""(() => {
+      const d = JSON.parse(document.getElementById('data').textContent);
+      const chs = (d.chapters || []).filter(c => c && c.start != null);
+      const box = document.getElementById('toc');
+      const btn = document.getElementById('t-toc');
+      const out = {n: chs.length, items: box.querySelectorAll('li').length,
+                   heads: document.querySelectorAll('h2.chap').length,
+                   openDefault: !box.hidden, jump: null, closed: null, reopened: null};
+      if (!chs.length) return out;
+      btn.click();                       // 收起
+      out.closed = box.hidden;
+      btn.click();                       // 再展开
+      out.reopened = !box.hidden;
+      const first = chs[Math.min(1, chs.length - 1)];
+      const b2 = box.querySelector('button[data-ch="' + (Math.min(1, chs.length - 1) + 1) + '"]');
+      if (b2) {
+        b2.click();
+        const open = document.querySelector('.s.open');
+        out.jump = open ? String(open.dataset.id) : null;
+        out.want = String(first.start);
+      }
+      return out;
+    })()""")
+    if toc['n']:
+        check('[%s] the outline lists every chapter' % lang,
+              toc['items'] == toc['n'], toc)
+        check('[%s] chapter headings are rendered in the text' % lang,
+              toc['heads'] == toc['n'], toc)
+        check('[%s] the outline starts expanded' % lang, toc['openDefault'], toc)
+        check('[%s] the outline collapses and reopens' % lang,
+              toc['closed'] and toc['reopened'], toc)
+        check('[%s] an outline entry jumps to its first sentence' % lang,
+              toc['jump'] is not None and toc['jump'] == toc['want'], toc)
+        b.js("(() => { const x = document.getElementById('toc-x'); if (x) x.click(); })()")
+
+    # 分卷：卷末给上一卷/下一卷链接
+    vol = b.js("""(() => {
+      const d = JSON.parse(document.getElementById('data').textContent);
+      const nav = document.querySelector('p.volnav');
+      return {nav: !!d.nav, label: nav ? nav.textContent : '',
+              prev: nav && nav.querySelector('a[href$="-1.html"]') ? 1 : 0};
+    })()""")
+    if vol['nav']:
+        check('[%s] a volume footer links to the other volume(s)' % lang,
+              '卷' in vol['label'] and ('上一卷' in vol['label'] or '下一卷' in vol['label']),
+              vol)
 
     if shots_dir:
         os.makedirs(shots_dir, exist_ok=True)
