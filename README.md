@@ -163,8 +163,8 @@ python3 foreign-close-reading/scripts/build_reader.py --data data.json --out "ä¹
 
 |1|2|
 |:--|:--|
-|![Screenshot from 2026-09-21 19-12-56](/home/hanl5/coding/hello-skills/images/Screenshot from 2026-09-21 19-12-56.png)|![Screenshot from 2026-09-21 19-16-23](/home/hanl5/coding/hello-skills/images/Screenshot from 2026-09-21 19-16-23.png)|
-|![Screenshot from 2026-09-21 19-14-48](/home/hanl5/coding/hello-skills/images/Screenshot from 2026-09-21 19-14-48.png)|![Screenshot from 2026-09-21 19-13-41](/home/hanl5/coding/hello-skills/images/Screenshot from 2026-09-21 19-13-41.png)|
+|![Screenshot from 2026-09-21 19-12-56](images/Screenshot from 2026-09-21 19-12-56.png)|![Screenshot from 2026-09-21 19-16-23](images/Screenshot from 2026-09-21 19-16-23.png)|
+|![Screenshot from 2026-09-21 19-14-48](images/Screenshot from 2026-09-21 19-14-48.png)|![Screenshot from 2026-09-21 19-13-41](images/Screenshot from 2026-09-21 19-13-41.png)|
 
 ---
 
