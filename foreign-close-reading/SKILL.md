@@ -114,6 +114,8 @@ python3 scripts/check_data.py --data data.json --sentences sentences.json
 - `id` 原样搬运的铁律不变；`text`/`para`/`ch` 根本不该出现在实例的批次里——组装脚本从切片原样注入，check_data 再逐句比对切片，谁改了原文谁那边直接报错。
 - 切片里带的 `chapters` 由组装脚本带进 `data-K.json`（build 合并时按 `start` 折叠，重复的只留一份），不用谁去拼。
 - **批次文件天然可续跑**：实例以 id 对齐、批完即落盘，中途被停掉时已完成的批次全部有效；重新组装一次就能看出还缺哪些句子，只补缺的部分，不要整块重做。
+- **把「不许联网查读音」写进每个实例的任务行**：派给实例的提示里必须明确禁止 `web_search`/`web_extract`，并给出工具调用预算（读切片 → 写批次 → 组装 → check，≤8 次）与「写完立刻落盘」。实测教训：声调核会让实例逐个去 Wiktionary / 声调词典核实，多个实例一起把时限烧光，产物全部丢失；同一批任务里只加了这条禁令的实例用 8 次调用、约 227 s 完成。任务行里直接附一份参考读音表（自己先给好 `假名〔N〕`），并允许实例对没把握的词在 `n` 字段写「声调核待核」——比上网查证便宜得多。
+- **每个实例的产出要自己复验**：对每个 `data-K.json` 都跑一遍 `check_data.py`，不要只看子代理自述（自述里的「0 error」要拿真实输出核对）。
 - `title` / `subtitle` / `lang` / `theme` 以 `--data`（第一个文件）为准；要统一控制就先写一个只含这几个字段的 meta.json 当 `--data`。
 - 切片重叠时后列出的文件覆盖先列出的；正常按 `--plan` 切不会重叠。
 
@@ -134,6 +136,20 @@ python3 scripts/build_reader.py --data data.json --out "<书名>-精读.html"
 ```
 
 模板自动取自 `assets/reader_template.html`，无需手动改模板。
+
+**单篇无章回的文本（短篇、单章散文）：构建前要自己给一份 `chapters`。** `split_sentences.py` 对整篇没有章回边界的文本返回空 `chapters`（每句 `ch=0`），而 `build_reader.py` 在没有任何章回时会退化出一个**无标题**的章（`{"title":"","start":<第一句>}`）；模板只在 `title` 非空时插 `<h2 class="chap">`，于是左侧目录有 1 条、正文里没有章头——`verify_reader.py` 的 `chapter headings are rendered in the text` 会 FAIL（其余各项都过）。标准解法是写一份只含元数据的 `meta.json` 当 `--data` 传给 build（技能允许用 `data.json` 覆盖章回清单）：
+
+```json
+{"title": "羅生門", "subtitle": "芥川龍之介", "lang": "ja", "theme": "paper", "total": 140,
+ "chapters": [{"title": "羅生門", "start": 1}]}
+```
+
+```bash
+python3 scripts/build_reader.py --data meta.json --merge data-1.json … data-N.json \
+    --total 140 --out "<书名>-精读.html"
+```
+
+标题用篇名本身即可（单章阅读器的目录就一条），随后 `verify_reader.py` 应当全过。不要为这件事去改 `build_reader.py` 或模板——那是所有分卷共用的路径。
 
 **500 KB 上限与分卷**：默认 `--max-kb 500`。整本 html 超过上限时按**章回**贪心装卷——一卷在装得下的最后一章处收尾，**同一章绝不跨卷**（这就是「以章回为单位向下取整」）；输出 `<书名>-精读-1.html`、`-2.html`…，每个分卷都是完整可用的阅读器（左侧章回导航、讲解卡片、进度保存都在），卷首标题带 `（1/2）`，卷末给上一卷/下一卷链接。阅读进度与外观按书名哈希存，跨卷共用。只有两种例外会告警但仍照常产出：全书只有一个章回边界（无处可拆，整本一个文件），或单独一章本身就超限（这一章独占一卷）。
 

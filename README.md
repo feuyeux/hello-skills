@@ -25,7 +25,7 @@ config:
   theme: neo
   look: neo
 ---
-flowchart LR
+flowchart TB
     A["translate-tts/scripts/run_translate_tts.sh"] --> B["conda run -n qwen3-tts python translate_tts.py"]
     B --> C{"输入检查"}
     C -- "text 或 text-file" --> D["parse_langs + normalize_target_language"]
@@ -160,6 +160,11 @@ python3 foreign-close-reading/scripts/build_reader.py --data data.json --out "�
 - **自检**：`check_data.py` 拦截漏译文、空条目、`不支持`/`undefined` 等占位符、原文被改写等问题，构建前必须 0 error。
 - **交互**：讲解卡片紧跟被点句子（长段落也不会跑到段尾）、学过的句子只压暗不再画线、←/→ 键逐句导航（卡片复用不跳页）、左侧可伸缩章回导航（显示每章已读/总句数，一键跳章）、右上角单按钮展开外观面板（10 种主题 + 字号/行距/版心/目录宽度）、localStorage 分开保存进度与外观。
 - **分卷**：`build_reader.py --max-kb 500`（默认）——整本超限就按章回贪心装卷，同一章不跨卷，卷首标 `（1/2）`、卷末给上下卷链接；`--single` 可强制单文件。
+
+|1|2|
+|:--|:--|
+|![Screenshot from 2026-09-21 19-12-56](/home/hanl5/coding/hello-skills/images/Screenshot from 2026-09-21 19-12-56.png)|![Screenshot from 2026-09-21 19-16-23](/home/hanl5/coding/hello-skills/images/Screenshot from 2026-09-21 19-16-23.png)|
+|![Screenshot from 2026-09-21 19-14-48](/home/hanl5/coding/hello-skills/images/Screenshot from 2026-09-21 19-14-48.png)|![Screenshot from 2026-09-21 19-13-41](/home/hanl5/coding/hello-skills/images/Screenshot from 2026-09-21 19-13-41.png)|
 
 ---
 
