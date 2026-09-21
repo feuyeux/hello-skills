@@ -96,6 +96,13 @@ class ChapterLine(unittest.TestCase):
         for line in ('i', 'v', 'a', '1900', 'Vive la France.'):
             self.assertIsNone(ss.looks_chapter_line(line), line)
 
+    def test_quoted_lines_are_never_titles(self):
+        # 带引号起头的独行短句是对白/电报/引文，哪怕碰巧以标题词开头
+        # （海明威《太阳照常升起》里的电报 "Letter to-day."、"Day after to-morrow."）
+        for line in ('“Letter to-day.”', '“Day after to-morrow.”',
+                     '"The Book of the Dead."', '«Lettre reçue.»', '「第一章到。」'):
+            self.assertIsNone(ss.looks_chapter_line(line), line)
+
     def test_part_and_chapter_numbers_merge_into_one_title(self):
         # "Première Partie" 紧挨 "I"：部标题不能被章号吞掉
         self.assertEqual(

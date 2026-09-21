@@ -733,6 +733,11 @@ def looks_chapter_line(para):
     p = re.sub(r'\s+', ' ', str(para or '')).strip()
     if not p or len(p) > 80:
         return None
+    # 标题从不带引号起头：带引号的独行短句是对白/电报/引文，
+    # "Letter to-day."、"Day after to-morrow."（letter/day 在标题词表里）
+    # 这类正文不能因为碰巧以标题词开头就被吞掉。
+    if p[0] in '“»«„"\u300c\u300e「『':
+        return None
     if p[-1] in '\u3002\uff01\uff1f!?\u2026,:;\u3001\uff0c\uff1a\uff1b':
         return None                 # 标题不会以句末标点收尾
     # 句子几乎都以句点收尾，标题极少；只有极短的（Chapter I.）才放行
