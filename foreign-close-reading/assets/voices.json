@@ -1,0 +1,489 @@
+{
+ "$comment": "阅读器人设花名册，由 /Users/han/coding/personal/explorateur/personas/personas.json 蒸馏而来，不要手工编辑——改人设请改 personas.json 后重跑 scripts/build_voices.py。人设目录是人设与 voiceId 的唯一事实源。",
+ "source": "/Users/han/coding/personal/explorateur/personas/personas.json",
+ "engine": "edge-tts",
+ "note": "voiceId 是 edge-tts（微软 Neural 声库）的 id，只在**离线烘焙音频**时直接可用。静态阅读器默认走浏览器 SpeechSynthesis，此时按 locale+gender 在系统声库里选最接近的音色，并套用该人设的语速/音高增量；界面会如实显示「人设 → 实际使用的系统音色」。",
+ "moods": {
+  "neutral": {
+   "rate": 0.0,
+   "pitch": 0.0,
+   "label": "平叙"
+  },
+  "teach": {
+   "rate": -0.15,
+   "pitch": 0.0,
+   "label": "领读"
+  },
+  "encouraging": {
+   "rate": -0.05,
+   "pitch": 2.0,
+   "label": "鼓励"
+  }
+ },
+ "scenes": {
+  "text": {
+   "locale": "@book",
+   "mood": "neutral",
+   "label": "原文",
+   "hint": "由这本书的原文语种人设朗读，叙述与对白同声。"
+  },
+  "gloss": {
+   "locale": "zh-CN",
+   "mood": "teach",
+   "label": "译文",
+   "hint": "由中文人设领读，语速放慢便于跟读。"
+  }
+ },
+ "locales": {
+  "zh-CN": {
+   "lively": "xiaoman",
+   "steady": "jiangyuan"
+  },
+  "en-US": {
+   "steady": "ruby",
+   "lively": "miles"
+  },
+  "fr-FR": {
+   "lively": "chloe",
+   "steady": "theo"
+  },
+  "de-DE": {
+   "steady": "lena",
+   "lively": "felix"
+  },
+  "es-ES": {
+   "lively": "lucia",
+   "steady": "mateo"
+  },
+  "ru-RU": {
+   "steady": "anya",
+   "lively": "misha"
+  },
+  "el-GR": {
+   "lively": "eleni",
+   "steady": "nikos"
+  },
+  "ar-SA": {
+   "steady": "layla",
+   "lively": "omar"
+  },
+  "hi-IN": {
+   "lively": "priya",
+   "steady": "arjun"
+  },
+  "ja-JP": {
+   "lively": "haruka",
+   "steady": "riku"
+  },
+  "ko-KR": {
+   "steady": "seoyeon",
+   "lively": "doyun"
+  },
+  "it-IT": {
+   "lively": "giulia",
+   "steady": "luca"
+  },
+  "he-IL": {
+   "lively": "noa",
+   "steady": "yuval"
+  },
+  "zh-HK": {
+   "steady": "aaching",
+   "lively": "ahao"
+  }
+ },
+ "personas": {
+  "xiaoman": {
+   "locale": "zh-CN",
+   "gender": "female",
+   "energy": "lively",
+   "name": "林小满",
+   "gloss": "小满＝节气名，将满未满",
+   "archetype": "元气提问者：先举手再思考",
+   "quirk": "书包侧袋里有一沓写着“为什么”的小卡片，问完一张就送人一张",
+   "voiceId": "zh-CN-XiaoxiaoNeural",
+   "rate": 0.07,
+   "pitch": 5.0,
+   "timbre": "明亮少女声，颗粒清晰，尾音轻快",
+   "role": "A"
+  },
+  "jiangyuan": {
+   "locale": "zh-CN",
+   "gender": "male",
+   "energy": "steady",
+   "name": "江远",
+   "gloss": "江与远，行远不忘路",
+   "archetype": "人形路标：话不多，指路一步不差",
+   "quirk": "指路从不看地图——全城公交站牌的位置他都记得",
+   "voiceId": "zh-CN-YunxiNeural",
+   "rate": -0.06,
+   "pitch": -3.0,
+   "timbre": "温润青年声，低中音，字字落定",
+   "role": "B"
+  },
+  "ruby": {
+   "locale": "en-US",
+   "gender": "female",
+   "energy": "steady",
+   "name": "Ruby",
+   "gloss": "宝石红，经典暖名",
+   "archetype": "街角咖啡馆掌柜：话不多但句句带钩",
+   "quirk": "外带杯上会画一张迷你小地图——比导航还准",
+   "voiceId": "en-US-JennyNeural",
+   "rate": -0.04,
+   "pitch": -2.0,
+   "timbre": "亲切成熟女声，微哑的咖啡感",
+   "role": "B"
+  },
+  "miles": {
+   "locale": "en-US",
+   "gender": "male",
+   "energy": "lively",
+   "name": "Miles",
+   "gloss": "英里，天生在路上",
+   "archetype": "旅行型选手：热情过剩，方向感为零",
+   "quirk": "同一座机场能迷路三次，却总能带回一个好故事",
+   "voiceId": "en-US-GuyNeural",
+   "rate": 0.08,
+   "pitch": 4.0,
+   "timbre": "开朗青年声，音区偏高语速易赶",
+   "role": "A"
+  },
+  "chloe": {
+   "locale": "fr-FR",
+   "gender": "female",
+   "energy": "lively",
+   "name": "Chloé",
+   "gloss": "法国常年前十女名，明快上口",
+   "archetype": "踩滑板的急先锋：说走就走",
+   "quirk": "走路永远比滑板慢半拍，所以她几乎不走路",
+   "voiceId": "fr-FR-DeniseNeural",
+   "rate": 0.07,
+   "pitch": 5.0,
+   "timbre": "圆润活泼女声，元音饱满",
+   "role": "A"
+  },
+  "theo": {
+   "locale": "fr-FR",
+   "gender": "male",
+   "energy": "steady",
+   "name": "Théo",
+   "gloss": "法国常年前列男名，短而温和",
+   "archetype": "慢先生：先说等等，再把路讲清",
+   "quirk": "口袋书翻到哪页都夹一枚枫叶书签；“等等”是他的开场白",
+   "voiceId": "fr-FR-HenriNeural",
+   "rate": -0.06,
+   "pitch": -3.0,
+   "timbre": "沉稳男中音，胸腔共鸣，句读分明",
+   "role": "B"
+  },
+  "lena": {
+   "locale": "de-DE",
+   "gender": "female",
+   "energy": "steady",
+   "name": "Lena",
+   "gloss": "德国常年榜首段女名，干净利落",
+   "archetype": "人形日程表：路要掰着指头讲",
+   "quirk": "手账里连“发呆”都排了时间段，而且从不超时",
+   "voiceId": "de-DE-KatjaNeural",
+   "rate": -0.05,
+   "pitch": -2.0,
+   "timbre": "清晰标准女声，节奏均匀如节拍器",
+   "role": "B"
+  },
+  "felix": {
+   "locale": "de-DE",
+   "gender": "male",
+   "energy": "lively",
+   "name": "Felix",
+   "gloss": "拉丁语“幸运的”",
+   "archetype": "幸运符本符：抬腿就走，看看会遇见什么",
+   "quirk": "登山包里永远多带一份三明治——他说那是“幸运的分量”",
+   "voiceId": "de-DE-ConradNeural",
+   "rate": 0.08,
+   "pitch": 5.0,
+   "timbre": "温厚男声，带笑意的亮度",
+   "role": "A"
+  },
+  "lucia": {
+   "locale": "es-ES",
+   "gender": "female",
+   "energy": "lively",
+   "name": "Lucía",
+   "gloss": "“光”，西班牙女名榜首段",
+   "archetype": "市场里的百灵鸟：热情先到，词尾跟上",
+   "quirk": "能听声辨果贩——谁家的橙子最甜，她一进门就知道",
+   "voiceId": "es-ES-ElviraNeural",
+   "rate": 0.07,
+   "pitch": 6.0,
+   "timbre": "明快女声，句首起势高",
+   "role": "A"
+  },
+  "mateo": {
+   "locale": "es-ES",
+   "gender": "male",
+   "energy": "steady",
+   "name": "Mateo",
+   "gloss": "西班牙男名榜首段",
+   "archetype": "慢板绅士：不急不躁，路在胸中",
+   "quirk": "手表永远拨快三分钟，好让“不着急”名副其实",
+   "voiceId": "es-ES-AlvaroNeural",
+   "rate": -0.07,
+   "pitch": -4.0,
+   "timbre": "从容男中音，收句干净",
+   "role": "B"
+  },
+  "anya": {
+   "locale": "ru-RU",
+   "gender": "female",
+   "energy": "steady",
+   "name": "Аня",
+   "gloss": "Anna 的经典昵称，全俄通吃",
+   "archetype": "院子里的小仙子：轻声细语，认识每个门洞",
+   "quirk": "说话轻得像自言自语，但院子里所有的猫都听她的",
+   "voiceId": "ru-RU-SvetlanaNeural",
+   "rate": -0.06,
+   "pitch": -3.0,
+   "timbre": "轻柔女声，气息偏多",
+   "role": "B"
+  },
+  "misha": {
+   "locale": "ru-RU",
+   "gender": "male",
+   "energy": "lively",
+   "name": "Миша",
+   "gloss": "Mikhail 的昵称，“小熊”般的国民名",
+   "archetype": "热心大哥：拍着胸脯保证，笑声先到",
+   "quirk": "拍胸脯保证的事没有一件落空；笑声能惊起一公园的鸽子",
+   "voiceId": "ru-RU-DmitryNeural",
+   "rate": 0.06,
+   "pitch": 3.0,
+   "timbre": "厚实男声，胸腔共鸣",
+   "role": "A"
+  },
+  "eleni": {
+   "locale": "el-GR",
+   "gender": "female",
+   "energy": "lively",
+   "name": "Ελένη",
+   "gloss": "“光炬”，希腊第一国民女名",
+   "archetype": "双手比划的演说家：路线讲成一场戏",
+   "quirk": "广场上每家咖啡馆的桌布，她都暗中评过级",
+   "voiceId": "el-GR-AthinaNeural",
+   "rate": 0.07,
+   "pitch": 4.0,
+   "timbre": "明亮女声，重音干脆",
+   "role": "A"
+  },
+  "nikos": {
+   "locale": "el-GR",
+   "gender": "male",
+   "energy": "steady",
+   "name": "Νίκος",
+   "gloss": "“胜利”，Nikolaos 的通称",
+   "archetype": "海边哲学家：捻着串珠想清楚，再挥手一指",
+   "quirk": "串珠捻完一圈才开口——回答得慢，但从没错过一个路口",
+   "voiceId": "el-GR-NestorasNeural",
+   "rate": -0.08,
+   "pitch": -4.0,
+   "timbre": "低沉男声，句尾下落如叹息",
+   "role": "B"
+  },
+  "layla": {
+   "locale": "ar-SA",
+   "gender": "female",
+   "energy": "steady",
+   "name": "ليلى",
+   "gloss": "“夜”，古典诗歌里的国民女名",
+   "archetype": "安静的向导：掌心向上，路便指好",
+   "quirk": "书摊上的旧书，她按“安静程度”分类摆放",
+   "voiceId": "ar-SA-ZariyahNeural",
+   "rate": -0.06,
+   "pitch": -3.0,
+   "timbre": "柔和女声，气声细腻",
+   "role": "B"
+  },
+  "omar": {
+   "locale": "ar-SA",
+   "gender": "male",
+   "energy": "lively",
+   "name": "عمر",
+   "gloss": "“旺盛的生命”，极高频男名",
+   "archetype": "开心果同事：拇指一竖，笑先到话后到",
+   "quirk": "咖啡永远点两杯——一杯自己喝，一杯讲笑话的时候举着",
+   "voiceId": "ar-SA-HamedNeural",
+   "rate": 0.06,
+   "pitch": 3.0,
+   "timbre": "醇厚男声，带笑纹质感",
+   "role": "A"
+  },
+  "priya": {
+   "locale": "hi-IN",
+   "gender": "female",
+   "energy": "lively",
+   "name": "प्रिया",
+   "gloss": "“被爱的”，印度经典女名",
+   "archetype": "蹦跳的提问机器：好奇比害羞多一步",
+   "quirk": "笔记本第一页永远是问题清单，答案写在最后一页",
+   "voiceId": "hi-IN-SwaraNeural",
+   "rate": 0.07,
+   "pitch": 5.0,
+   "timbre": "甜美女声，节奏弹跳",
+   "role": "A"
+  },
+  "arjun": {
+   "locale": "hi-IN",
+   "gender": "male",
+   "energy": "steady",
+   "name": "अर्जुन",
+   "gloss": "史诗神射手，常青男名",
+   "archetype": "笔记狂人：地图折得方方正正，答案按条给",
+   "quirk": "地图必须沿着原来的折痕折——折错了就重折一遍再出发",
+   "voiceId": "hi-IN-MadhurNeural",
+   "rate": -0.05,
+   "pitch": -2.0,
+   "timbre": "稳重男声，吐字工整",
+   "role": "B"
+  },
+  "haruka": {
+   "locale": "ja-JP",
+   "gender": "female",
+   "energy": "lively",
+   "name": "ハルカ",
+   "gloss": "“辽远”，高频女名",
+   "archetype": "元气应援团：双手挥起来才算打招呼",
+   "quirk": "到新地方必拍三张照片：入口、招牌，还有一起去的伙伴",
+   "voiceId": "ja-JP-NanamiNeural",
+   "rate": 0.08,
+   "pitch": 5.0,
+   "timbre": "清亮少女声，音高高",
+   "role": "A"
+  },
+  "riku": {
+   "locale": "ja-JP",
+   "gender": "male",
+   "energy": "steady",
+   "name": "リク",
+   "gloss": "“大地”，近年榜首段男名",
+   "archetype": "面瘫导航：表情零起伏，指路零误差",
+   "quirk": "整条街都装在脑子里，但问他“今天开心吗”要等三秒",
+   "voiceId": "ja-JP-KeitaNeural",
+   "rate": -0.07,
+   "pitch": -5.0,
+   "timbre": "平直少年声，几乎无起伏",
+   "role": "B"
+  },
+  "seoyeon": {
+   "locale": "ko-KR",
+   "gender": "female",
+   "energy": "steady",
+   "name": "서연",
+   "gloss": "2010 年代韩国女名榜首段",
+   "archetype": "手账少女：合上本子的一刻就是答案",
+   "quirk": "手账合上的那声“啪”，就是“没问题”的意思",
+   "voiceId": "ko-KR-SunHiNeural",
+   "rate": -0.04,
+   "pitch": -2.0,
+   "timbre": "清晰女声，收音利落",
+   "role": "B"
+  },
+  "doyun": {
+   "locale": "ko-KR",
+   "gender": "male",
+   "energy": "lively",
+   "name": "도윤",
+   "gloss": "同期男名榜首段",
+   "archetype": "反戴帽子的鬼灵精：正经不超过三秒",
+   "quirk": "帽子反戴时点子最多，戴正了反而卡壳",
+   "voiceId": "ko-KR-InJoonNeural",
+   "rate": 0.07,
+   "pitch": 4.0,
+   "timbre": "活泼男声，句尾上挑",
+   "role": "A"
+  },
+  "giulia": {
+   "locale": "it-IT",
+   "gender": "female",
+   "energy": "lively",
+   "name": "Giulia",
+   "gloss": "意大利女名榜首段",
+   "archetype": "飞吻告别的行动派：ciao 先行",
+   "quirk": "告别要说两次 ciao——一次给离开的人，一次给落日",
+   "voiceId": "it-IT-ElsaNeural",
+   "rate": 0.07,
+   "pitch": 5.0,
+   "timbre": "明媚女声，元音开放",
+   "role": "A"
+  },
+  "luca": {
+   "locale": "it-IT",
+   "gender": "male",
+   "energy": "steady",
+   "name": "Luca",
+   "gloss": "意大利国民男名",
+   "archetype": "插兜慢步的老好人：肩一耸，路就在那儿",
+   "quirk": "广场的鸽群会跟着他散步，一只也不飞走",
+   "voiceId": "it-IT-DiegoNeural",
+   "rate": -0.07,
+   "pitch": -4.0,
+   "timbre": "松弛男声，喉音柔和",
+   "role": "B"
+  },
+  "noa": {
+   "locale": "he-IL",
+   "gender": "female",
+   "energy": "lively",
+   "name": "נועה",
+   "gloss": "“律动”，以色列女名榜首段",
+   "archetype": "挎相机的观察者：探身凑近才肯罢休",
+   "quirk": "相册按“第一次看见”分类——同一个路口，她永远拍不腻",
+   "voiceId": "he-IL-HilaNeural",
+   "rate": 0.06,
+   "pitch": 4.0,
+   "timbre": "清脆女声，问句上扬",
+   "role": "A"
+  },
+  "yuval": {
+   "locale": "he-IL",
+   "gender": "male",
+   "energy": "steady",
+   "name": "יובל",
+   "gloss": "“溪流/号角”，常青男名",
+   "archetype": "慢悠悠的老哥：招手说跟我来，步子不快但稳",
+   "quirk": "大水壶永远装满——他说，愿意分享水的地方就会有人问路",
+   "voiceId": "he-IL-AvriNeural",
+   "rate": -0.06,
+   "pitch": -3.0,
+   "timbre": "温和男声，慢板",
+   "role": "B"
+  },
+  "aaching": {
+   "locale": "zh-HK",
+   "gender": "female",
+   "energy": "steady",
+   "name": "阿晴",
+   "gloss": "阿＋单字街坊称谓，晴＝明快",
+   "archetype": "街坊百事通：淡定利落，边条巷有几级台阶都知",
+   "quirk": "菜单簿的空白页上画着迷你地图——边条巷有几级台阶都标了",
+   "voiceId": "zh-HK-HiuMaanNeural",
+   "rate": -0.05,
+   "pitch": -2.0,
+   "timbre": "明快女声，九声利落",
+   "role": "B"
+  },
+  "ahao": {
+   "locale": "zh-HK",
+   "gender": "male",
+   "energy": "lively",
+   "name": "阿豪",
+   "gloss": "同款命名法，港式常名（家豪/豪仔）",
+   "archetype": "心直口快的好心人：挠着头憨笑，路没指错",
+   "quirk": "给人指路会顺便带到巷口——蒸笼的白雾就是他的路标",
+   "voiceId": "zh-HK-WanLungNeural",
+   "rate": 0.07,
+   "pitch": 4.0,
+   "timbre": "厚朴男声，尾音带笑",
+   "role": "A"
+  }
+ }
+}

@@ -404,6 +404,55 @@ def audit(path, b, shots_dir=None):
     check('[%s] column-width control works' % lang, abs(ctl['width'] - 900) < 60, ctl)
     check('[%s] reset restores the defaults' % lang, ctl['reset'] == '680px', ctl)
 
+    # 朗读人设：有 voices 时必须接上——卡片有朗读条、面板能换人、
+    # 人设的语速/音高真的进了 utterance。无声线时不报错（headless 常见）。
+    tts = b.js("""(async () => {
+      const d = JSON.parse(document.getElementById('data').textContent);
+      if (!d.voices) return {off: true};
+      const s0 = document.querySelectorAll('.s')[0];
+      s0.click();
+      const bar = s0._holder && s0._holder.querySelector('.readbar');
+      const panel = document.getElementById('ttsgrp');
+      const raw = {rate: 0, pitch: 0, voice: null, lang: null, n: 0};
+      const oldSpeak = speechSynthesis.speak.bind(speechSynthesis);
+      speechSynthesis.speak = (u) => { raw.lang = u.lang; raw.rate = u.rate;
+        raw.pitch = u.pitch; raw.voice = u.voice && u.voice.name; raw.n++; };
+      const realSetInterval = window.setInterval;
+      try {
+        window.setInterval = function () { return 0; };   // 掐掉心跳定时器
+        const btn = bar && bar.querySelector('button[data-r="text"]');
+        if (btn) btn.click();
+        await new Promise(r => setTimeout(r, 400));        // say() 里有 50ms 让位
+      } finally {
+        window.setInterval = realSetInterval;
+        speechSynthesis.speak = oldSpeak;
+      }
+      return {off: false, hasBar: !!bar,
+              buttons: bar ? bar.querySelectorAll('button').length : 0,
+              panelVisible: panel && !panel.hidden,
+              whoLabel: bar && bar.querySelector('[data-who]').textContent,
+              pickers: document.querySelectorAll('#seg-voice button').length +
+                       document.querySelectorAll('#seg-gloss button').length +
+                       document.querySelectorAll('#seg-pick button').length,
+              bookLocale: d.voices.bookLocale, names: Object.keys(d.voices.personas).length,
+              said: raw};
+    })()""")
+    if not tts.get('off'):
+        check('[%s] every card carries a read bar' % lang,
+              tts['hasBar'] and tts['buttons'] >= 3, tts)
+        check('[%s] the read bar names the reader' % lang,
+              bool(tts.get('whoLabel')), tts.get('whoLabel'))
+        check('[%s] the panel offers A/B readers' % lang,
+              tts['panelVisible'] and tts['pickers'] >= 6, tts)
+        check('[%s] the persona locale reaches the utterance' % lang,
+              tts['said']['n'] >= 1 and tts['said']['lang'] == tts['bookLocale'],
+              {'lang': tts['said']['lang'], 'bookLocale': tts['bookLocale']})
+        # 人设的语速/音高必须真的落在 utterance 上，而不是只写在界面上
+        if tts['said']['n']:
+            check('[%s] persona prosody reaches the utterance' % lang,
+                  abs(tts['said']['rate'] - 1.0) > 1e-6 or abs(tts['said']['pitch'] - 1.0) > 1e-6,
+                  {'rate': tts['said']['rate'], 'pitch': tts['said']['pitch']})
+
     prog = b.js("document.querySelectorAll('.s.seen').length")
     check('[%s] reading progress is tracked' % lang, prog > 0, prog)
 

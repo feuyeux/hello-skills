@@ -204,6 +204,66 @@ def compact(obj):
     return json.dumps(obj, ensure_ascii=False, separators=(',', ':')).replace('</', '<\\/')
 
 
+# ── 朗读人设 ────────────────────────────────────────────────────────────
+# 语种代码 → 声库 locale。data.json 的 lang 可以写语言代码（fr）或排版族
+# 名（latn），朗读要的是前者；排版族反查不出语种，落到 FALLBACK_LOCALE。
+LOCALE_BY_LANG = {
+    'zh': 'zh-CN', 'zh-cn': 'zh-CN', 'zh-hans': 'zh-CN', 'zh-tw': 'zh-HK',
+    'zh-hk': 'zh-HK', 'yue': 'zh-HK', 'en': 'en-US', 'fr': 'fr-FR',
+    'de': 'de-DE', 'es': 'es-ES', 'it': 'it-IT', 'ru': 'ru-RU',
+    'ja': 'ja-JP', 'ko': 'ko-KR', 'hi': 'hi-IN', 'ar': 'ar-SA',
+    'el': 'el-GR', 'he': 'he-IL', 'el-gr': 'el-GR',
+}
+LAYOUT_TO_LANG = {
+    'latn': 'en-US', 'cyrl': 'ru-RU', 'cjk': 'zh-CN', 'jpn': 'ja-JP',
+    'kor': 'ko-KR', 'rtl': 'ar-SA',
+}
+FALLBACK_LOCALE = 'en-US'
+
+
+def load_voices(lang, disabled=False):
+    """把 assets/voices.json 裁成这一本用得到的部分，挂到 data['voices']。
+
+    只带**本书语种 + 译文语种（zh-CN）**两档人设：28 人全塞进去对
+    500 KB 的卷上限是白扔体积，而阅读器只需要这两个语种。"""
+    if disabled:
+        return None
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        '..', 'assets', 'voices.json')
+    if not os.path.exists(path):
+        return None
+    try:
+        roster = json.load(open(path, encoding='utf-8'))
+    except Exception:
+        return None
+    key = str(lang or '').lower()
+    book_locale = LOCALE_BY_LANG.get(key) or LAYOUT_TO_LANG.get(key)
+    if not book_locale:
+        # lang 缺省时按正文脚本猜；猜不出就用英语
+        book_locale = FALLBACK_LOCALE
+    gloss = (roster.get('scenes', {}).get('gloss', {}) or {}).get('locale', 'zh-CN')
+    want = [book_locale]
+    if gloss not in want:
+        want.append(gloss)
+    keep_locales = {k: v for k, v in roster.get('locales', {}).items() if k in want}
+    keep_ids = {pid for pair in keep_locales.values() for pid in pair.values()}
+    keep_personas = {k: v for k, v in roster.get('personas', {}).items() if k in keep_ids}
+    if not keep_personas:
+        return None
+    out = {
+        'bookLocale': book_locale,
+        'engine': roster.get('engine', 'edge-tts'),
+        'moods': roster.get('moods', {}),
+        'scenes': roster.get('scenes', {}),
+        'locales': keep_locales,
+        'personas': keep_personas,
+    }
+    if book_locale not in keep_locales:
+        print('note: 人设表里没有 %s 的班底，朗读将退回 %s 的音色'
+              % (book_locale, FALLBACK_LOCALE))
+    return out
+
+
 def split_volumes(data, chapters, template, title, limit):
     """Greedy: whole chapters per volume, each volume ≤ limit bytes.
 
@@ -321,6 +381,10 @@ def main():
                     help='保守压缩模板（去块注释/缩进/空行），体积再降一点')
     ap.add_argument('--strict', action='store_true',
                     help='fail when a sentence has no translation or no annotations')
+    ap.add_argument('--no-voice', action='store_true',
+                    help='不嵌朗读人设：页面不出现朗读条（本机无可用音色时可关）')
+    ap.add_argument('--locale', metavar='XX-YY',
+                    help='朗读用的 locale（如 fr-FR）；默认取 --lang / data.json 里的语言码')
     a = ap.parse_args()
 
     data = load_json(a.data)
@@ -396,6 +460,10 @@ def main():
         if a.strict and not str(s.get('translation') or '').strip():
             fail('sentences[%d] (id=%s) has no translation (--strict)' % (i, s.get('id')))
 
+    # 朗读人设要在 norm_lang **之前**取语言码：norm_lang 把 fr 折成排版族
+    # latn，语言码就此丢失，后面再反查只能猜（法文会掉进英语音色）。
+    src_lang = a.locale or a.lang or data.get('lang')
+
     if a.lang:
         data['lang'] = norm_lang(a.lang)
     elif data.get('lang'):
@@ -406,6 +474,8 @@ def main():
         data.pop('theme', None)
     if a.total:
         data['total'] = a.total
+
+    data['voices'] = load_voices(src_lang, a.no_voice)
 
     chapters = data.get('chapters')
     if not isinstance(chapters, list) or not chapters:

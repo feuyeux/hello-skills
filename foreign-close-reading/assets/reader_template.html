@@ -282,6 +282,29 @@ html[data-lang="jpn"] .g .frag,html[data-lang="cyrl"] .g .frag{font-family:inher
   border:none; background:none; padding:4px 8px; margin:-4px -8px 0 0}
 .card .x:hover{color:var(--ink)}
 .trans{margin:2px 0 4px; font-size:17px}
+
+/* ── 朗读：人设驱动的声线与韵律 ────────────────────── */
+.readbar{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:6px 0 2px}
+.readbar button{
+  font:500 12.5px/1 var(--font-ui); color:var(--ink);
+  background:var(--card); border:1px solid var(--line);
+  border-radius:999px; padding:6px 11px; cursor:pointer;
+  display:inline-flex; align-items:center; gap:5px; transition:.15s;
+}
+.readbar button:hover{border-color:var(--accent); color:var(--accent)}
+.readbar button[aria-pressed="true"]{background:var(--accent); color:var(--paper); border-color:var(--accent)}
+.readbar .who{font:400 11.5px/1.4 var(--font-ui); color:var(--muted);
+  margin-left:auto; text-align:right; max-width:100%}
+/* 正在被朗读的句子：左侧一根小竖条，不抢正文的底色 */
+.s.speaking{box-shadow:inset 3px 0 0 var(--accent)}
+.readnote{font:400 11.5px/1.6 var(--font-ui); color:var(--muted); margin:4px 0 0}
+.readnote b{color:var(--accent); font-weight:600}
+.ttsgroup .seg{margin-top:2px}
+.voiceinfo{font:400 11.5px/1.65 var(--font-ui); color:var(--muted); margin:8px 0 0}
+.voiceinfo b{color:var(--ink); font-weight:600}
+.voiceinfo .warn{color:var(--accent)}
+@media (max-width:640px){ .readbar .who{margin-left:0; text-align:left} }
+
 h3{font:600 12px/1.4 var(--font-ui); color:var(--accent);
   letter-spacing:.14em; margin:18px 0 8px}
 .w{display:flex; gap:16px; padding:8px 0; border-bottom:1px dashed var(--line)}
@@ -367,6 +390,14 @@ footer{max-width:var(--measure,680px); margin:0 auto; padding:0 16px 48px;
   <div class="grp">
     <h4>已读标记</h4>
     <div class="seg" id="seg-seen"></div>
+  </div>
+  <div class="grp ttsgroup" id="ttsgrp" hidden>
+    <h4>朗读</h4>
+    <div class="seg" id="seg-voice"></div>
+    <div class="seg" id="seg-gloss"></div>
+    <div class="seg" id="seg-rate"></div>
+    <div class="seg" id="seg-pick"></div>
+    <p class="voiceinfo" id="voiceinfo">正在探测本机音色…</p>
   </div>
   <div class="grp">
     <h4>样式</h4>
@@ -831,6 +862,16 @@ function cardHTML(s) {
   h += '<p class="trans">' + (has(body) ? esc(body)
     : '<span style="color:var(--muted)">（这一句没有译文）</span>') + '</p>';
 
+  /* 朗读条：原文 / 译文 / 连读。放在译文下面，讲解之前——先听再说。 */
+  if (DATA.voices) {
+    h += '<div class="readbar">' +
+      '<button data-r="text" title="朗读这一句的原文（P）">🔊 原文</button>' +
+      '<button data-r="gloss" title="朗读这一句的译文（Shift+P）">译</button>' +
+      '<button data-r="auto" aria-pressed="false" title="从这一句开始连读">▶ 连读</button>' +
+      '<span class="who" data-who></span>' +
+      '</div>';
+  }
+
   var words = arr(pick(s, ['words', 'vocab', 'vocabulary', 'glossary', 'lexicon']))
     .map(splitWord)
     .filter(function (w) {
@@ -940,6 +981,8 @@ function open(span) {
   if (!holder) return;
   holder.innerHTML = '<div class="card">' + cardHTML(s) + '</div>';
   holder.hidden = false;
+  var who = holder.querySelector('[data-who]');
+  if (who && TTS) { var p = TTS.who('text'); who.textContent = p.name + ' 朗读'; }
   var x = holder.querySelector('.x');
   if (x) x.onclick = function (e) { e.stopPropagation(); closeCard(); };
   seen[s.id] = 1;
@@ -1057,6 +1100,296 @@ document.addEventListener('keydown', function (e) {
 });
 
 save();
+
+/* ══ 朗读 ══════════════════════════════════════════════════════════
+   人设来自 explorateur/personas（唯一事实源），由 build_voices.py 蒸馏进
+   DATA.voices。voiceId 是 edge-tts 神经音色，只在离线烘焙音频时直接可用；
+   静态阅读器默认走浏览器 SpeechSynthesis——此时按 locale + gender 在系统
+   声库里挑最接近的一只，套用人设的语速/音高。界面如实显示
+   「人设 → 实际用的系统音色」，不假装浏览器能发出 edge 的声音。      */
+var ttsPrefs = { textVoice: 'A', glossVoice: 'A', rate: '正常', voicePick: '人设' };
+try { var st = JSON.parse(localStorage.getItem('fcr-tts') || '{}');
+      Object.keys(ttsPrefs).forEach(function (k) { if (st[k]) ttsPrefs[k] = st[k]; });
+} catch (e) {}
+function saveTTS() { try { localStorage.setItem('fcr-tts', JSON.stringify(ttsPrefs)); } catch (e) {} }
+
+var TTS = (function () {
+  var synth = window.speechSynthesis, V = DATA.voices;
+  if (!synth || !V || !V.personas) return null;
+  var index = new Map(), ready = false, keep = null, speaking = null, seq = 0, autoId = null, autoT = null;
+  var RATES = { '慢': .82, '正常': 1, '快': 1.18 }, GLOSS = 'zh-CN';
+
+  /* macOS 把 1980 年代的 Eloquence 机器人声线（法语里叫 "Jacques"）按字母
+     顺序排在真实声线前面；不排除的话，一整本法语会变成同一段 1984 年的蜂鸣。
+     同理躲开 Bad News / Cellos 这类拟声彩蛋音色。 */
+  var ROBOT = /^(eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley|jacques|albert|fred|ralph|junior|kathy|jester|bad news|good news|bahh|bells|boing|bubbles|cellos|organ|superstar|trinoids|whisper|wobble|zarvox)/i;
+  var ORIGIN = /eloquence|com\.apple\.(voice|ttsbundle|siri)|com\.apple\.speech\.synthesis|microsoft|google|urn:moz-tts/i;
+  /* 性别靠名字猜：Windows/Edge 的声线带 (Female)/(Male) 标注，macOS 与
+     Chrome 的新版不带，只能靠常见名。猜不出就按 unknown 走，并在界面上
+     照实说明，不假装知道。 */
+  var FEM = 'samantha karen moira tessa fiona serena kate victoria allison ava susan zoe nicky joana luciana amélie audrey tingting meijia sinji li-mu hiumaan yiu-shu milena yuna kyoko xsuxi huihui xiaoxiao xiaoyi denise eloise vivienne jenny aria emma michelle ana katja petra marlene anna conchita laura monica paulina sabina elvira ximena elsa giulia sofia chiara isabella svetlana athina nanami sunhi swara hila zariyah'.split(' ');
+  var MAL = 'alex daniel thomas oliver david mark george james ryan aaron tom rishi fred reed eddy albert sergio juan luca yuri konrad conrad florian killian diego giuseppe alvaro nikos nestoras keita injoon madhur hamed avri wanlung dmitry guy brian christopher eric russell roger steffan andrew henri remy'.split(' ');
+  var femSet = new Set(FEM), malSet = new Set(MAL);
+
+  function norm(t) { var s = String(t || '').toLowerCase();
+    return { 'zh-hans': 'zh-cn', 'zh-hant': 'zh-cn', 'yue-hk': 'zh-hk' }[s] || s; }
+  function isRobot(v) {
+    var u = String(v.voiceURI || '');
+    if (/eloquence/i.test(u)) return true;
+    if (ORIGIN.test(u)) return false;
+    return ROBOT.test(String(v.name || '').trim());
+  }
+  function tier(v) {
+    var h = (String(v.name || '') + ' ' + String(v.voiceURI || '')).toLowerCase();
+    if (/neural|enhanced|premium|natural|siri/.test(h)) return 'hi';
+    if (isRobot(v)) return 'robot';
+    return /compact/.test(h) ? 'lo' : 'plain';
+  }
+  function genderOf(v) {
+    var n = String(v.name || '');
+    if (/\(female\)/i.test(n)) return 'f';
+    if (/\(male\)/i.test(n)) return 'm';
+    var head = n.split(/[\s(]/)[0].toLowerCase();
+    if (femSet.has(head)) return 'f';
+    if (malSet.has(head)) return 'm';
+    var low = n.toLowerCase();
+    for (var i = 0; i < FEM.length; i++) if (low.indexOf(FEM[i]) === 0) return 'f';
+    for (var j = 0; j < MAL.length; j++) if (low.indexOf(MAL[j]) === 0) return 'm';
+    return '?';
+  }
+  function rank(v) {
+    var r = 0;
+    if (isRobot(v)) r += 120;
+    if (/desktop/i.test(v.name || '')) r += 3;
+    if (!v.localService) r += 2;
+    if (v.default) r -= 1;
+    var t = tier(v);
+    if (t === 'hi') r -= 6; else if (t === 'lo') r += 4;
+    return r;
+  }
+  /* 选音色。人设写死了性别与音色要求（Chloé「圆润活泼女声」），本机却
+     常常只有另一种性别的音色——那就明说，而不是让它悄悄用错的声音念。
+     voicePick='人设'：同语言内先挑性别对得上的；='标准'：先保本地区，
+     读文学原文时 fr-FR 的标准读法通常比 fr-CA 更该优先。 */
+  function pickVoice(locale, gender) {
+    var L = norm(locale), res = { v: null, miss: [] };
+    var all = index.get(L.split('-')[0]) || [];
+    /* 同语言里只要有真人音色就彻底剔除机器人：Eloquence 就算碰巧猜对
+       性别也不该赢过一整本该用真人念的书。 */
+    var list = all.filter(function (v) { return !isRobot(v); });
+    if (!list.length) list = all;
+    if (!list.length) { res.miss.push('nolang'); return res; }
+    var persona = ttsPrefs.voicePick !== '标准';
+    var w = list.map(function (v) {
+      var g = genderOf(v), s = rank(v);
+      s += norm(v.lang) === L ? 0 : 18;
+      if (persona && g !== '?') s += g === gender ? -70 : 70;
+      return { v: v, s: s, g: g };
+    }).sort(function (a, b) {
+      return a.s - b.s || String(a.v.name).localeCompare(String(b.v.name));
+    })[0];
+    res.v = w.v;
+    if (norm(w.v.lang) !== L) res.miss.push('region');
+    if (gender && w.g !== '?' && w.g !== gender) res.miss.push('gender');
+    return res;
+  }
+  function load() {
+    var list = synth.getVoices() || [];
+    if (list.length) ready = true;
+    index = new Map();
+    (list || []).forEach(function (v) {
+      var p = norm(v.lang).split('-')[0];
+      if (!index.has(p)) index.set(p, []);
+      index.get(p).push(v);
+    });
+    paint();
+  }
+  function who(scene) {
+    var loc = scene === 'gloss' ? GLOSS : (V.bookLocale || 'fr-FR');
+    var pair = (V.locales || {})[loc] || {};
+    var pid = ttsPrefs[scene === 'gloss' ? 'glossVoice' : 'textVoice'] === 'B'
+      ? (pair.steady || pair.lively) : (pair.lively || pair.steady);
+    return (V.personas || {})[pid] || { locale: loc, name: loc, gender: 'f',
+                                        energy: 'steady', rate: 0, pitch: 0, voiceId: '' };
+  }
+  /* personas.json 里写的是 female/male，本机音色判出来是 f/m，两边都要归一。
+     不归一的话「人设优先」会永远把音色判成不匹配，等于这个开关是死的。 */
+  function vname(v) { return String((v || {}).name || '').replace(/\s*\(.*\)\s*$/, ''); }
+  function pGender(p) {
+    var g = String((p || {}).gender || '').toLowerCase();
+    return g === 'f' || g === 'female' ? 'f'
+         : g === 'm' || g === 'male' ? 'm' : '?';
+  }
+  /* 有效参数 = 个人基线 + 情绪增量，按 voice.md 的安全域夹取（不破音） */
+  function prosody(p, scene) {
+    var mood = (V.moods || {})[((V.scenes || {})[scene] || {}).mood || 'neutral'] || {};
+    var rate = 1 + (p.rate || 0) + (mood.rate || 0);
+    var pitch = (p.pitch || 0) + (mood.pitch || 0);
+    return { rate: Math.min(1.2, Math.max(0.8, rate)) * (RATES[ttsPrefs.rate] || 1),
+             pitch: Math.min(12, Math.max(-12, pitch)) };
+  }
+  /* edge-tts 的 pitch 是 Hz 偏移，SpeechSynthesisUtterance.pitch 是 0–2 的
+     相对倍率（1 = 原声）。按人声基频 F0 折成频率比，再乘一个增益，把人设
+     之间 ±5Hz 的微小差别放大到听得出来，又不至于变成花栗鼠。 */
+  var F0 = 190, PITCH_GAIN = 2.2;
+  function pitchOf(hz) {
+    return Math.min(1.6, Math.max(0.6, 1 + PITCH_GAIN * (hz || 0) / F0));
+  }
+  function stop() {
+    if (autoT) { clearTimeout(autoT); autoT = null; }
+    autoId = null; seq++;
+    if (speaking) { speaking.classList.remove('speaking'); speaking = null; }
+    try { synth.cancel(); } catch (e) {}
+    Array.prototype.forEach.call(document.querySelectorAll('.readbar button[aria-pressed="true"]'),
+      function (b) { b.setAttribute('aria-pressed', 'false'); });
+  }
+  function say(text, scene, mark, done) {
+    if (!text) return;
+    var p = who(scene), pk = pickVoice(p.locale, pGender(p)), pr = prosody(p, scene);
+    try {
+      synth.cancel();
+      setTimeout(function () {
+        var u = new SpeechSynthesisUtterance(text);
+        u.lang = p.locale;
+        if (pk.v) u.voice = pk.v;
+        u.rate = pr.rate; u.pitch = pitchOf(pr.pitch);
+        u.onend = u.onerror = function () {
+          if (keep) { clearInterval(keep); keep = null; }
+          if (mark) mark.classList.remove('speaking');
+          if (done) done();
+        };
+        if (mark) { mark.classList.add('speaking'); speaking = mark; }
+        synth.speak(u);
+        if (!keep) keep = setInterval(function () {
+          if (synth.speaking && !synth.paused) { synth.pause(); synth.resume(); }
+        }, 8000);
+      }, 50);
+    } catch (e) {
+      var box = document.getElementById('voiceinfo');
+      if (box) box.textContent = '朗读失败：' + e.message;
+    }
+  }
+  /* 连读：一句接一句，读完自动翻到下一句并展开讲解 */
+  function step() {
+    if (!autoId) return;
+    var spans = [].slice.call(book.querySelectorAll('.s')), i = spans.indexOf(autoId);
+    if (i < 0) return stop();
+    open(autoId);
+    say(autoId.textContent, 'text', autoId, function () {
+      var next = spans[i + 1];
+      if (!next) return stop();
+      autoId = next; next.scrollIntoView({ block: 'center' });
+      autoT = setTimeout(step, 420);
+    });
+  }
+  function paint() {
+    var box = document.getElementById('voiceinfo');
+    if (!box) return;
+    if (!ready) { box.textContent = '正在探测本机音色…'; return; }
+    function line(scene) {
+      var p = who(scene), pk = pickVoice(p.locale, pGender(p)), v = pk.v;
+      var sc = (V.scenes || {})[scene] || {}, pr = prosody(p, scene), q = v ? tier(v) : null;
+      var r = Math.round((pr.rate - 1) * 100), pi = Math.round(pr.pitch);
+      var sex = pGender(p) === 'f' ? '女' : '男', notes = [];
+      if (!v) notes.push('<span class="warn">本机没有 ' + esc(p.locale) + ' 音色</span>');
+      else {
+        if (pk.miss.indexOf('gender') >= 0)
+          notes.push('<span class="warn">本机 ' + esc(p.locale) + ' 没有' + sex +
+            '声，只好用 ' + esc(v.lang) + ' 的 ' + esc(vname(v)) + '</span>');
+        else if (pk.miss.indexOf('region') >= 0)
+          notes.push('<span class="warn">本机没有 ' + esc(p.locale) +
+            '，改用同语言的 ' + esc(v.lang) + ' ' + esc(vname(v)) + '</span>');
+        if (q === 'robot') notes.push('<span class="warn">机械合成音</span>');
+        else if (q !== 'hi') notes.push('<span class="warn">' +
+          (q === 'lo' ? '基础低清音' : '标准音') + '，非人设指定的神经音色</span>');
+      }
+      return '<b>' + esc(sc.label || scene) + '</b> ' + esc(p.name) + '（' + sex + '）→ 系统音色 <b>' +
+        (v ? esc(vname(v)) + ' · ' + esc(v.lang) : '无') + '</b>' + notes.join('') +
+        '<br>语速 ' + (r >= 0 ? '+' : '') + r + '%，音高 ' + (pi >= 0 ? '+' : '') + pi + 'Hz' +
+        (p.voiceId ? ' · 神经音色 ' + esc(p.voiceId) + '（需离线烘焙）' : '');
+    }
+    box.innerHTML = line('text') + '<br>' + line('gloss');
+  }
+  return { say: say, stop: stop, load: load, RATES: RATES,
+           playFrom: function (s) { stop(); autoId = s; step(); },
+           paint: paint, who: who, pickVoice: pickVoice, V: V,
+           get ready() { return ready; } };
+})();
+
+if (TTS) {
+  (function panel() {
+    var grp = document.getElementById('ttsgrp');
+    grp.hidden = false;
+    function nm(pid) { var p = TTS.V.personas[pid];
+      return p ? p.name + (p.energy === 'lively' ? '（活泼）' : '（沉稳）') : pid; }
+    function pair(loc) { return TTS.V.locales[loc] || {}; }
+    var b = pair(TTS.V.bookLocale || 'fr-FR'), g = pair('zh-CN');
+    [['seg-voice', b, 'textVoice'], ['seg-gloss', g, 'glossVoice']].forEach(function (r) {
+      var box = document.getElementById(r[0]);
+      [['A', r[1].lively], ['B', r[1].steady]].forEach(function (o) {
+        var btn = document.createElement('button');
+        btn.dataset.v = o[0]; btn.dataset.pid = o[1] || '';
+        btn.textContent = nm(o[1]);
+        btn.onclick = function () { ttsPrefs[r[2]] = o[0]; saveTTS(); mark(); TTS.paint(); };
+        box.appendChild(btn);
+      });
+    });
+    var rb = document.getElementById('seg-rate');
+    Object.keys(TTS.RATES).forEach(function (k) {
+      var btn = document.createElement('button');
+      btn.dataset.v = k; btn.textContent = k;
+      btn.onclick = function () { ttsPrefs.rate = k; saveTTS(); mark(); TTS.paint(); };
+      rb.appendChild(btn);
+    });
+    var pk = document.getElementById('seg-pick');
+    ['人设', '标准'].forEach(function (k) {
+      var btn = document.createElement('button');
+      btn.dataset.v = k;
+      btn.textContent = k === '人设' ? '音色保人设' : '音色保标准语';
+      btn.onclick = function () { ttsPrefs.voicePick = k; saveTTS(); mark(); TTS.paint(); };
+      pk.appendChild(btn);
+    });
+    function mark() {
+      [['seg-voice', 'textVoice'], ['seg-gloss', 'glossVoice'], ['seg-rate', 'rate'],
+       ['seg-pick', 'voicePick']]
+        .forEach(function (r) {
+          [].forEach.call(document.getElementById(r[0]).children, function (btn) {
+            btn.setAttribute('aria-pressed', String(btn.dataset.v === ttsPrefs[r[1]]));
+          });
+        });
+    }
+    mark(); TTS.paint(); TTS.load();
+    window.addEventListener('load', TTS.paint);
+    if (window.speechSynthesis.addEventListener)
+      window.speechSynthesis.addEventListener('voiceschanged', TTS.paint);
+    var n = 0, poll = setInterval(function () {
+      if (TTS.ready || ++n > 12) { clearInterval(poll); TTS.paint(); }
+    }, 250);
+  })();
+
+  book.addEventListener('click', function (e) {
+    var btn = e.target.closest('.readbar button');
+    if (!btn) return;
+    e.stopPropagation();
+    var holder = btn.closest('.holder');
+    var span = book.querySelector('.s[data-id="' + holder.dataset.for + '"]');
+    if (btn.dataset.r === 'text') TTS.say(span.textContent, 'text', span);
+    else if (btn.dataset.r === 'gloss') {
+      var tr = holder.querySelector('.trans');
+      TTS.say(tr ? tr.textContent : '', 'gloss');
+    } else if (btn.getAttribute('aria-pressed') === 'true') { TTS.stop(); btn.setAttribute('aria-pressed', 'false'); }
+    else { btn.setAttribute('aria-pressed', 'true'); TTS.playFrom(span); }
+  });
+  /* P 读原文，Shift+P 读译文 */
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'p' && e.key !== 'P') return;
+    if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (!openHolder) return;
+    var span = book.querySelector('.s[data-id="' + openHolder.dataset.for + '"]');
+    if (e.shiftKey) { var tr = openHolder.querySelector('.trans'); TTS.say(tr ? tr.textContent : '', 'gloss'); }
+    else if (span) TTS.say(span.textContent, 'text', span);
+  });
+}
 </script>
 </body>
 </html>

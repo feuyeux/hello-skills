@@ -20,10 +20,14 @@ sys.path.insert(0, SCRIPTS)
 
 import split_sentences as ss  # noqa: E402
 
-# 模板本身就有 ~44 KB，所以体积上限必须设在它之上才有意义：
-# 每章再加 ~6 KB 的讲解，两章一卷就正好在两章处封顶。
-TEMPLATE_KB = 44
-CAP_KB = 56
+TEMPLATE = os.path.join(HERE, '..', 'assets', 'reader_template.html')
+
+# 体积上限必须**实测**模板体积再往上留，不能写死一个数字。模板加功能
+# （朗读人设等）会变胖，写死的上限一旦小到「模板本身就已超限」，这组测试
+# 测的就不再是分卷逻辑，而是模板体积——加个功能就假红一次。
+# 内容预算留 12 KB：每章 ~4.3 KB，于是两章一卷正好在两章处封顶。
+TEMPLATE_KB = int(os.path.getsize(TEMPLATE) / 1024)
+CAP_KB = TEMPLATE_KB + 12
 
 
 def run(script, *args, **kw):
@@ -212,6 +216,13 @@ class ChaptersInPlan(unittest.TestCase):
 
 class Volumes(unittest.TestCase):
     """500 KB 上限：以章回为单位向下取整，同一章绝不跨卷。"""
+
+    def test_template_stays_small_against_the_production_cap(self):
+        """模板是每卷都要背的固定开销。它逼近生产上限，分卷就会被它吃光，
+        所以这里钉一条与上面那个「上限跟着模板走」相对的底线。"""
+        self.assertGreater(CAP_KB, TEMPLATE_KB)
+        self.assertLess(TEMPLATE_KB, 500 * 0.25,
+                        '模板 %d KB 已超过生产上限 500 KB 的四分之一' % TEMPLATE_KB)
 
     def setUp(self):
         self.d = tempfile.mkdtemp(prefix='fcr-vol-')
