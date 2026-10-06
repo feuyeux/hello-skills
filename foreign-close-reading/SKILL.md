@@ -118,6 +118,22 @@ python3 scripts/check_data.py --data data.json --sentences sentences.json
 - **每个实例的产出要自己复验**：对每个 `data-K.json` 都跑一遍 `check_data.py`，不要只看子代理自述（自述里的「0 error」要拿真实输出核对）。
 - `title` / `subtitle` / `lang` / `theme` 以 `--data`（第一个文件）为准；要统一控制就先写一个只含这几个字段的 meta.json 当 `--data`。
 - 切片重叠时后列出的文件覆盖先列出的；正常按 `--plan` 切不会重叠。
+- **批次文件一律用 `json.dump` 写，写完立刻 `json.load` 验一次，不要手写 JSON。** 并发生成最常见的失败不是讲解质量，是批次文件根本不是合法 JSON：手写时用 ASCII `"` 当中文强调引号、或者把句子对象提前闭合（`"grammar": [ … ]},` 就把对象关掉了，后面再写 `"native"` 就落到对象外面）。`assemble_annotations.py` 遇到第一个坏条目就整批不写，报错信息只给行号列号，很难看出是哪一句的问题——实测四个实例同时手写 JSON 就会一起踩。稳妥写法：
+
+  ```bash
+  python3 - <<'PY'
+  import json
+  batch = [{"id": 84, "translation": "「……」",
+            "words": [{"w": "diguer", "p": "dige", "m": "修堤"}],
+            "grammar": [{"t": "…", "d": "…"}], "culture": [], "native": []}]
+  json.dump(batch, open("annots-2.b1.json", "w", encoding="utf-8"),
+            ensure_ascii=False, indent=1)
+  print("ok", len(json.load(open("annots-2.b1.json", encoding="utf-8"))))
+  PY
+  ```
+
+  走 `json.dump` 时中文 “ ” 「」 和 `’` 都不是问题，Python 字面量也容忍尾逗号。没打印 `ok` 就先修好再写下一批。
+- 父实例收尾时把**所有** `annots-K.b*.json` 统一 `json.load` 扫一遍再组装，不要只看子代理自述。
 
 ### 5. 生成阅读器
 
@@ -150,6 +166,26 @@ python3 scripts/build_reader.py --data meta.json --merge data-1.json … data-N.
 ```
 
 标题用篇名本身即可（单章阅读器的目录就一条），随后 `verify_reader.py` 应当全过。不要为这件事去改 `build_reader.py` 或模板——那是所有分卷共用的路径。
+
+**但长篇单一部作品（中篇小说、长散文、只有一个大标题的纪实）不要真的只给一章。** 几百句挤进一个目录条目，左侧导航等于没有，而且 500 KB 分卷时也无处可拆——「以章回为单位向下取整」会退化成整本一个文件。这类文本通常有天然的分段边界（场景转换、人物登场、叙事阶段），把它们推导成一组 `chapters`，既救导航也救分卷。`start` 要的是**句子 id**而不是段号，用下面这段从「段号区间」表换算出来：
+
+```python
+import json
+d = json.load(open('sentences.json'))
+first = {}
+for s in d['sentences']:
+    first.setdefault(s['para'], s['id'])          # 每段第一句的 id
+chapters = []
+for title, (a, b) in SECTIONS:                   # SECTIONS = [("夜渡",(1,8)), …]
+    ids = [first[p] for p in range(a, b+1) if p in first]
+    if ids:
+        chapters.append({"title": title, "start": min(ids)})
+meta = {"title": "…", "subtitle": "…", "lang": "fr", "theme": "sepia",
+        "total": d["total"], "chapters": chapters}
+json.dump(meta, open('meta.json','w',encoding='utf-8'), ensure_ascii=False, indent=1)
+```
+
+边界怎么定：先通读文本找场景/阶段切换点（人物换场、时间跳跃、话题转折），再回到底本核对段号——**不要凭印象填段号**，段号错位会让整章标题落到错误的句子上。分段数量按阅读节奏定：一般每章 40–90 句，短于 20 句的章不值得单列，长于 200 句的应该再切。切完确认首章 `start` 恒为 1、章节 `start` 严格递增且不超过 `total`，否则 `build_reader.py` 会把越界的条目吸附到末章，目录会重复。
 
 **500 KB 上限与分卷**：默认 `--max-kb 500`。整本 html 超过上限时按**章回**贪心装卷——一卷在装得下的最后一章处收尾，**同一章绝不跨卷**（这就是「以章回为单位向下取整」）；输出 `<书名>-精读-1.html`、`-2.html`…，每个分卷都是完整可用的阅读器（左侧章回导航、讲解卡片、进度保存都在），卷首标题带 `（1/2）`，卷末给上一卷/下一卷链接。阅读进度与外观按书名哈希存，跨卷共用。只有两种例外会告警但仍照常产出：全书只有一个章回边界（无处可拆，整本一个文件），或单独一章本身就超限（这一章独占一卷）。
 
